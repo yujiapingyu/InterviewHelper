@@ -11,6 +11,7 @@ import { getAIFeedback, startSpeechRecognition } from './utils/gemini';
 function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [currentView, setCurrentView] = useState('login');
+  const [initializing, setInitializing] = useState(true);
   const [questions, setQuestions] = useState([]);
   const [favorites, setFavorites] = useState([]);
   const [selectedQuestion, setSelectedQuestion] = useState(null);
@@ -77,6 +78,8 @@ function App() {
       }
     } catch (err) {
       console.error('Error loading user:', err);
+    } finally {
+      setInitializing(false);
     }
   };
 
@@ -807,6 +810,18 @@ function App() {
               ログインに戻る
             </button>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Show loading spinner during initialization
+  if (initializing) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-12 h-12 text-blue-600 animate-spin mx-auto mb-4" />
+          <p className="text-gray-600">読み込み中...</p>
         </div>
       </div>
     );

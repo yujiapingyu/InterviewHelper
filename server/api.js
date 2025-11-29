@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
-import db, { initDatabase } from './db.js';
+import pool, { initDatabase } from './db.js';
 import { parseResume, generateQuestions, evaluateAnswer, generateFollowUpQuestion, evaluateFollowUpAnswer, analyzeVocabulary } from './gemini.js';
 import { extractTextFromFile } from './fileParser.js';
 import { isNotionEnabled, syncVocabularyToNotion, deleteVocabularyFromNotion } from './notion.js';
@@ -25,8 +25,10 @@ const upload = multer({
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
-// Initialize database
-initDatabase();
+// Helper function to convert Date to MySQL datetime format
+function toMySQLDatetime(date) {
+  return date.toISOString().slice(0, 19).replace('T', ' ');
+}
 
 // Helper function to hash password (simple base64 for demo)
 function hashPassword(password) {
@@ -43,182 +45,263 @@ function generateToken() {
 }
 
 // Auth middleware
-function authenticate(req, res, next) {
+async function authenticate(req, res, next) {
   const token = req.headers.authorization?.replace('Bearer ', '');
   if (!token) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  const session = db.prepare("SELECT * FROM sessions WHERE token = ? AND expires_at > datetime('now')").get(token);
-  if (!session) {
-    return res.status(401).json({ error: 'Invalid or expired token' });
-  }
+  try {
+    const [rows] = await pool.query(
+      "SELECT * FROM sessions WHERE token = ? AND expires_at > NOW()",
+      [token]
+    );
+    const session = rows[0];
+    
+    if (!session) {
+      return res.status(401).json({ error: 'Invalid or expired token' });
+    }
 
-  req.userId = session.user_id;
-  next();
+    req.userId = session.user_id;
+    next();
+  } catch (error) {
+    console.error('Auth error:', error);
+    return res.status(500).json({ error: 'Authentication failed' });
+  }
 }
 
 // ===== AUTH ROUTES =====
 
-app.post('/api/auth/register', (req, res) => {
+app.post('/api/auth/register', async (req, res) => {
   const { email, password, username } = req.body;
 
   try {
     const passwordHash = hashPassword(password);
-    const result = db.prepare(`
-      INSERT INTO users (email, password_hash, username)
-      VALUES (?, ?, ?)
-    `).run(email, passwordHash, username || email.split('@')[0]);
+    const [result] = await pool.query(
+      `INSERT INTO users (email, password_hash, username) VALUES (?, ?, ?)`,
+      [email, passwordHash, username || email.split('@')[0]]
+    );
 
-    const user = db.prepare('SELECT id, email, username, created_at FROM users WHERE id = ?').get(result.lastInsertRowid);
+    const [userRows] = await pool.query(
+      'SELECT id, email, username, created_at FROM users WHERE id = ?',
+      [result.insertId]
+    );
+    const user = userRows[0];
     
     // Create session
     const token = generateToken();
-    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(); // 30 days
-    db.prepare('INSERT INTO sessions (user_id, token, expires_at) VALUES (?, ?, ?)').run(user.id, token, expiresAt);
+    const expiresAt = toMySQLDatetime(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)); // 30 days
+    await pool.query(
+      'INSERT INTO sessions (user_id, token, expires_at) VALUES (?, ?, ?)',
+      [user.id, token, expiresAt]
+    );
 
     res.json({ user, token });
   } catch (error) {
-    res.status(400).json({ error: error.message.includes('UNIQUE') ? 'Email already exists' : error.message });
+    res.status(400).json({ error: error.code === 'ER_DUP_ENTRY' ? 'Email already exists' : error.message });
   }
 });
 
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
 
-  const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
-  if (!user || !verifyPassword(password, user.password_hash)) {
-    return res.status(401).json({ error: 'Invalid email or password' });
+  try {
+    const [userRows] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
+    const user = userRows[0];
+    
+    if (!user || !verifyPassword(password, user.password_hash)) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    const token = generateToken();
+    const expiresAt = toMySQLDatetime(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000));
+    await pool.query(
+      'INSERT INTO sessions (user_id, token, expires_at) VALUES (?, ?, ?)',
+      [user.id, token, expiresAt]
+    );
+
+    const { password_hash, ...userWithoutPassword } = user;
+    res.json({ user: userWithoutPassword, token });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ error: error.message });
   }
-
-  const token = generateToken();
-  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-  db.prepare('INSERT INTO sessions (user_id, token, expires_at) VALUES (?, ?, ?)').run(user.id, token, expiresAt);
-
-  const { password_hash, ...userWithoutPassword } = user;
-  res.json({ user: userWithoutPassword, token });
 });
 
-app.post('/api/auth/logout', authenticate, (req, res) => {
-  const token = req.headers.authorization?.replace('Bearer ', '');
-  db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
-  res.json({ success: true });
+app.post('/api/auth/logout', authenticate, async (req, res) => {
+  try {
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    await pool.query('DELETE FROM sessions WHERE token = ?', [token]);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Logout error:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
-app.get('/api/auth/me', authenticate, (req, res) => {
-  const user = db.prepare('SELECT id, email, username, avatar_url, target_language, created_at FROM users WHERE id = ?').get(req.userId);
-  res.json(user);
+app.get('/api/auth/me', authenticate, async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      'SELECT id, email, username, avatar_url, target_language, created_at FROM users WHERE id = ?',
+      [req.userId]
+    );
+    res.json(rows[0]);
+  } catch (error) {
+    console.error('Get user error:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // ===== QUESTIONS ROUTES =====
 
-app.get('/api/questions', authenticate, (req, res) => {
+app.get('/api/questions', authenticate, async (req, res) => {
   const { category } = req.query;
   
-  let query = 'SELECT * FROM questions WHERE user_id IS NULL OR user_id = ?';
-  const params = [req.userId];
-  
-  if (category && category !== 'all') {
-    query += ' AND category = ?';
-    params.push(category);
+  try {
+    let query = 'SELECT * FROM questions WHERE user_id IS NULL OR user_id = ?';
+    const params = [req.userId];
+    
+    if (category && category !== 'all') {
+      query += ' AND category = ?';
+      params.push(category);
+    }
+    
+    query += ' ORDER BY created_at DESC';
+    
+    const [questions] = await pool.query(query, params);
+    
+    // Parse JSON fields
+    questions.forEach(q => {
+      if (q.tips_ja) q.tips_ja = JSON.parse(q.tips_ja);
+    });
+    
+    res.json(questions);
+  } catch (error) {
+    console.error('Get questions error:', error);
+    res.status(500).json({ error: error.message });
   }
-  
-  query += ' ORDER BY created_at DESC';
-  
-  const questions = db.prepare(query).all(...params);
-  
-  // Parse JSON fields
-  questions.forEach(q => {
-    if (q.tips_ja) q.tips_ja = JSON.parse(q.tips_ja);
-  });
-  
-  res.json(questions);
 });
 
-app.get('/api/questions/random', authenticate, (req, res) => {
+app.get('/api/questions/random', authenticate, async (req, res) => {
   const { category } = req.query;
   
-  let query = 'SELECT * FROM questions WHERE (user_id IS NULL OR user_id = ?)';
-  const params = [req.userId];
-  
-  if (category && category !== 'all') {
-    query += ' AND category = ?';
-    params.push(category);
+  try {
+    let query = 'SELECT * FROM questions WHERE (user_id IS NULL OR user_id = ?)';
+    const params = [req.userId];
+    
+    if (category && category !== 'all') {
+      query += ' AND category = ?';
+      params.push(category);
+    }
+    
+    query += ' ORDER BY RAND() LIMIT 1';
+    
+    const [rows] = await pool.query(query, params);
+    const question = rows[0];
+    
+    if (question && question.tips_ja) {
+      question.tips_ja = JSON.parse(question.tips_ja);
+    }
+    
+    res.json(question);
+  } catch (error) {
+    console.error('Get random question error:', error);
+    res.status(500).json({ error: error.message });
   }
-  
-  query += ' ORDER BY RANDOM() LIMIT 1';
-  
-  const question = db.prepare(query).get(...params);
-  
-  if (question && question.tips_ja) {
-    question.tips_ja = JSON.parse(question.tips_ja);
-  }
-  
-  res.json(question);
 });
 
-app.get('/api/questions/:id', authenticate, (req, res) => {
-  const question = db.prepare('SELECT * FROM questions WHERE id = ?').get(req.params.id);
-  if (question && question.tips_ja) {
-    question.tips_ja = JSON.parse(question.tips_ja);
+app.get('/api/questions/:id', authenticate, async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT * FROM questions WHERE id = ?', [req.params.id]);
+    const question = rows[0];
+    
+    if (question && question.tips_ja) {
+      question.tips_ja = JSON.parse(question.tips_ja);
+    }
+    res.json(question);
+  } catch (error) {
+    console.error('Get question error:', error);
+    res.status(500).json({ error: error.message });
   }
-  res.json(question);
 });
 
-app.post('/api/questions', authenticate, (req, res) => {
+app.post('/api/questions', authenticate, async (req, res) => {
   const { category, question_ja, question_zh, model_answer_ja, tips_ja, summary, is_ai_generated } = req.body;
   
-  const result = db.prepare(`
-    INSERT INTO questions (user_id, category, question_ja, question_zh, model_answer_ja, tips_ja, summary, is_ai_generated)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    req.userId,
-    category,
-    question_ja,
-    question_zh || null,
-    model_answer_ja || null,
-    JSON.stringify(tips_ja || []),
-    summary || null,
-    is_ai_generated ? 1 : 0
-  );
-  
-  const question = db.prepare('SELECT * FROM questions WHERE id = ?').get(result.lastInsertRowid);
-  if (question.tips_ja) question.tips_ja = JSON.parse(question.tips_ja);
-  
-  res.json(question);
+  try {
+    const [result] = await pool.query(
+      `INSERT INTO questions (user_id, category, question_ja, question_zh, model_answer_ja, tips_ja, summary, is_ai_generated)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        req.userId,
+        category,
+        question_ja,
+        question_zh || null,
+        model_answer_ja || null,
+        JSON.stringify(tips_ja || []),
+        summary || null,
+        is_ai_generated ? 1 : 0
+      ]
+    );
+    
+    const [questionRows] = await pool.query('SELECT * FROM questions WHERE id = ?', [result.insertId]);
+    const question = questionRows[0];
+    if (question.tips_ja) question.tips_ja = JSON.parse(question.tips_ja);
+    
+    res.json(question);
+  } catch (error) {
+    console.error('Create question error:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
-app.put('/api/questions/:id', authenticate, (req, res) => {
+app.put('/api/questions/:id', authenticate, async (req, res) => {
   const { category, question_ja, question_zh, model_answer_ja, tips_ja, summary } = req.body;
   
-  db.prepare(`
-    UPDATE questions 
-    SET category = ?, question_ja = ?, question_zh = ?, model_answer_ja = ?, tips_ja = ?, summary = ?, updated_at = datetime('now')
-    WHERE id = ? AND user_id = ?
-  `).run(
-    category,
-    question_ja,
-    question_zh || null,
-    model_answer_ja || null,
-    JSON.stringify(tips_ja || []),
-    summary || null,
-    req.params.id,
-    req.userId
-  );
-  
-  const question = db.prepare('SELECT * FROM questions WHERE id = ?').get(req.params.id);
-  if (question && question.tips_ja) question.tips_ja = JSON.parse(question.tips_ja);
-  
-  res.json(question);
+  try {
+    await pool.query(
+      `UPDATE questions 
+       SET category = ?, question_ja = ?, question_zh = ?, model_answer_ja = ?, tips_ja = ?, summary = ?, updated_at = NOW()
+       WHERE id = ? AND user_id = ?`,
+      [
+        category,
+        question_ja,
+        question_zh || null,
+        model_answer_ja || null,
+        JSON.stringify(tips_ja || []),
+        summary || null,
+        req.params.id,
+        req.userId
+      ]
+    );
+    
+    const [questionRows] = await pool.query('SELECT * FROM questions WHERE id = ?', [req.params.id]);
+    const question = questionRows[0];
+    if (question && question.tips_ja) question.tips_ja = JSON.parse(question.tips_ja);
+    
+    res.json(question);
+  } catch (error) {
+    console.error('Update question error:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
-app.delete('/api/questions/:id', authenticate, (req, res) => {
-  // Allow deleting both user-created and AI-generated questions
-  const result = db.prepare('DELETE FROM questions WHERE id = ? AND (user_id = ? OR user_id IS NULL)').run(req.params.id, req.userId);
-  if (result.changes === 0) {
-    return res.status(404).json({ error: 'Question not found or no permission' });
+app.delete('/api/questions/:id', authenticate, async (req, res) => {
+  try {
+    // Allow deleting both user-created and AI-generated questions
+    const [result] = await pool.query(
+      'DELETE FROM questions WHERE id = ? AND (user_id = ? OR user_id IS NULL)',
+      [req.params.id, req.userId]
+    );
+    
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'Question not found or no permission' });
+    }
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Delete question error:', error);
+    res.status(500).json({ error: error.message });
   }
-  res.json({ success: true });
 });
 
 // Generate questions with AI
@@ -227,31 +310,34 @@ app.post('/api/questions/generate', authenticate, async (req, res) => {
   
   try {
     // Get existing summaries to avoid duplicates
-    const existingQuestions = db.prepare('SELECT summary FROM questions WHERE user_id = ? AND summary IS NOT NULL').all(req.userId);
+    const [existingQuestions] = await pool.query(
+      'SELECT summary FROM questions WHERE user_id = ? AND summary IS NOT NULL',
+      [req.userId]
+    );
     const existingSummaries = existingQuestions.map(q => q.summary);
     
     // Generate questions using AI
     const newQuestions = await generateQuestions(resumeInfo, existingSummaries, category, count);
     
     // Insert questions into database
-    const insertStmt = db.prepare(`
-      INSERT INTO questions (user_id, category, question_ja, question_zh, model_answer_ja, tips_ja, summary, is_ai_generated)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 1)
-    `);
-    
     const insertedQuestions = [];
     for (const q of newQuestions) {
-      const result = insertStmt.run(
-        req.userId,
-        category,
-        q.question_ja,
-        q.question_zh || null,
-        q.model_answer_ja || null,
-        JSON.stringify(q.tips_ja || []),
-        q.summary || null
+      const [result] = await pool.query(
+        `INSERT INTO questions (user_id, category, question_ja, question_zh, model_answer_ja, tips_ja, summary, is_ai_generated)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
+        [
+          req.userId,
+          category,
+          q.question_ja,
+          q.question_zh || null,
+          q.model_answer_ja || null,
+          JSON.stringify(q.tips_ja || []),
+          q.summary || null
+        ]
       );
       
-      const question = db.prepare('SELECT * FROM questions WHERE id = ?').get(result.lastInsertRowid);
+      const [questionRows] = await pool.query('SELECT * FROM questions WHERE id = ?', [result.insertId]);
+      const question = questionRows[0];
       if (question.tips_ja) question.tips_ja = JSON.parse(question.tips_ja);
       insertedQuestions.push(question);
     }
@@ -265,67 +351,91 @@ app.post('/api/questions/generate', authenticate, async (req, res) => {
 
 // ===== PRACTICE RECORDS ROUTES =====
 
-app.post('/api/practice', authenticate, (req, res) => {
+app.post('/api/practice', authenticate, async (req, res) => {
   const { question_id, user_answer, answer_type, ai_feedback } = req.body;
   
-  const result = db.prepare(`
-    INSERT INTO practice_records (user_id, question_id, user_answer, answer_type, ai_feedback)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(req.userId, question_id, user_answer, answer_type, JSON.stringify(ai_feedback));
-  
-  const record = db.prepare('SELECT * FROM practice_records WHERE id = ?').get(result.lastInsertRowid);
-  if (record.ai_feedback) record.ai_feedback = JSON.parse(record.ai_feedback);
-  
-  res.json(record);
+  try {
+    const [result] = await pool.query(
+      `INSERT INTO practice_records (user_id, question_id, user_answer, answer_type, ai_feedback)
+       VALUES (?, ?, ?, ?, ?)`,
+      [req.userId, question_id, user_answer, answer_type, JSON.stringify(ai_feedback)]
+    );
+    
+    const [recordRows] = await pool.query('SELECT * FROM practice_records WHERE id = ?', [result.insertId]);
+    const record = recordRows[0];
+    if (record.ai_feedback) record.ai_feedback = JSON.parse(record.ai_feedback);
+    
+    res.json(record);
+  } catch (error) {
+    console.error('Create practice record error:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
-app.get('/api/practice/question/:questionId', authenticate, (req, res) => {
-  const records = db.prepare('SELECT * FROM practice_records WHERE user_id = ? AND question_id = ? ORDER BY created_at DESC').all(req.userId, req.params.questionId);
-  records.forEach(r => {
-    if (r.ai_feedback) r.ai_feedback = JSON.parse(r.ai_feedback);
-  });
-  res.json(records);
+app.get('/api/practice/question/:questionId', authenticate, async (req, res) => {
+  try {
+    const [records] = await pool.query(
+      'SELECT * FROM practice_records WHERE user_id = ? AND question_id = ? ORDER BY created_at DESC',
+      [req.userId, req.params.questionId]
+    );
+    
+    records.forEach(r => {
+      if (r.ai_feedback) r.ai_feedback = JSON.parse(r.ai_feedback);
+    });
+    res.json(records);
+  } catch (error) {
+    console.error('Get practice records error:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // ===== FAVORITES ROUTES =====
 
-app.get('/api/favorites', authenticate, (req, res) => {
-  const favorites = db.prepare(`
-    SELECT 
-      f.id, f.user_id, f.question_id, f.practice_record_id, f.notes,
-      f.question_snapshot, f.user_answer, f.ai_feedback, f.ai_corrected_version,
-      f.conversation_history, f.created_at, f.updated_at,
-      q.category, q.question_ja, q.question_zh, q.model_answer_ja, 
-      q.tips_ja, q.summary, q.is_ai_generated
-    FROM favorites f 
-    JOIN questions q ON f.question_id = q.id 
-    WHERE f.user_id = ?
-    ORDER BY f.created_at DESC
-  `).all(req.userId);
-  
-  favorites.forEach(f => {
-    if (f.tips_ja) f.tips_ja = JSON.parse(f.tips_ja);
-    // Parse question_snapshot if exists
-    if (f.question_snapshot) {
-      try {
-        f.question_snapshot = JSON.parse(f.question_snapshot);
-      } catch (e) {
-        f.question_snapshot = null;
+app.get('/api/favorites', authenticate, async (req, res) => {
+  try {
+    const [favorites] = await pool.query(
+      `SELECT 
+        f.id, f.user_id, f.question_id, f.practice_record_id, f.notes,
+        f.question_snapshot, f.user_answer, f.ai_feedback, f.ai_corrected_version,
+        f.conversation_history, f.created_at, f.updated_at,
+        q.category, q.question_ja, q.question_zh, q.model_answer_ja, 
+        q.tips_ja, q.summary, q.is_ai_generated
+      FROM favorites f 
+      JOIN questions q ON f.question_id = q.id 
+      WHERE f.user_id = ?
+      ORDER BY f.created_at DESC`,
+      [req.userId]
+    );
+    
+    favorites.forEach(f => {
+      if (f.tips_ja) f.tips_ja = JSON.parse(f.tips_ja);
+      // Parse question_snapshot if exists
+      if (f.question_snapshot) {
+        try {
+          f.question_snapshot = JSON.parse(f.question_snapshot);
+        } catch (e) {
+          f.question_snapshot = null;
+        }
       }
-    }
-  });
-  
-  res.json(favorites);
+    });
+    
+    res.json(favorites);
+  } catch (error) {
+    console.error('Get favorites error:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
-app.post('/api/favorites', authenticate, (req, res) => {
+app.post('/api/favorites', authenticate, async (req, res) => {
   const { question_id, practice_record_id, notes, user_answer, ai_feedback, ai_corrected_version } = req.body;
   
   console.log('📌 Adding to favorites:', { question_id, user_id: req.userId });
   
   try {
     // Get question snapshot
-    const question = db.prepare('SELECT * FROM questions WHERE id = ?').get(question_id);
+    const [questionRows] = await pool.query('SELECT * FROM questions WHERE id = ?', [question_id]);
+    const question = questionRows[0];
+    
     if (!question) {
       console.error('❌ Question not found for id:', question_id);
       return res.status(404).json({ error: 'Question not found' });
@@ -333,30 +443,32 @@ app.post('/api/favorites', authenticate, (req, res) => {
 
     console.log('✅ Found question:', question.question_ja?.substring(0, 50));
 
-    const result = db.prepare(`
-      INSERT INTO favorites (
+    const [result] = await pool.query(
+      `INSERT INTO favorites (
         user_id, question_id, practice_record_id, notes,
         question_snapshot, user_answer, ai_feedback, ai_corrected_version
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      req.userId,
-      question_id,
-      practice_record_id || null,
-      notes || null,
-      JSON.stringify(question),
-      user_answer || null,
-      ai_feedback || null,
-      ai_corrected_version || null
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        req.userId,
+        question_id,
+        practice_record_id || null,
+        notes || null,
+        JSON.stringify(question),
+        user_answer || null,
+        ai_feedback || null,
+        ai_corrected_version || null
+      ]
     );
     
-    const favorite = db.prepare('SELECT * FROM favorites WHERE id = ?').get(result.lastInsertRowid);
+    const [favoriteRows] = await pool.query('SELECT * FROM favorites WHERE id = ?', [result.insertId]);
+    const favorite = favoriteRows[0];
     if (favorite.question_snapshot) {
       favorite.question_snapshot = JSON.parse(favorite.question_snapshot);
     }
     res.json(favorite);
   } catch (error) {
-    if (error.message.includes('UNIQUE')) {
+    if (error.code === 'ER_DUP_ENTRY') {
       res.status(400).json({ error: 'Already favorited' });
     } else {
       res.status(500).json({ error: error.message });
@@ -374,8 +486,12 @@ app.put('/api/favorites/:favoriteId', authenticate, async (req, res) => {
     let conversationHistory = null;
     if (conversation_id) {
       console.log('📥 Fetching conversation for id:', conversation_id);
-      const conversation = db.prepare('SELECT conversation_turns FROM practice_conversations WHERE id = ? AND user_id = ?')
-        .get(conversation_id, req.userId);
+      const [conversationRows] = await pool.query(
+        'SELECT conversation_turns FROM practice_conversations WHERE id = ? AND user_id = ?',
+        [conversation_id, req.userId]
+      );
+      const conversation = conversationRows[0];
+      
       if (conversation) {
         conversationHistory = conversation.conversation_turns;
         console.log('✅ Found conversation with', JSON.parse(conversationHistory).length, 'turns');
@@ -386,21 +502,22 @@ app.put('/api/favorites/:favoriteId', authenticate, async (req, res) => {
 
     console.log('💾 Updating favorite with conversation_history:', conversationHistory ? 'YES' : 'NO');
 
-    db.prepare(`
-      UPDATE favorites 
-      SET user_answer = ?, 
-          ai_feedback = ?, 
-          ai_corrected_version = ?,
-          conversation_history = ?,
-          updated_at = datetime('now')
-      WHERE id = ? AND user_id = ?
-    `).run(
-      user_answer,
-      ai_feedback,
-      ai_corrected_version,
-      conversationHistory,
-      req.params.favoriteId,
-      req.userId
+    await pool.query(
+      `UPDATE favorites 
+       SET user_answer = ?, 
+           ai_feedback = ?, 
+           ai_corrected_version = ?,
+           conversation_history = ?,
+           updated_at = NOW()
+       WHERE id = ? AND user_id = ?`,
+      [
+        user_answer,
+        ai_feedback,
+        ai_corrected_version,
+        conversationHistory,
+        req.params.favoriteId,
+        req.userId
+      ]
     );
 
     console.log('✅ Favorite updated successfully');
@@ -411,24 +528,49 @@ app.put('/api/favorites/:favoriteId', authenticate, async (req, res) => {
   }
 });
 
-app.delete('/api/favorites/:questionId', authenticate, (req, res) => {
-  db.prepare('DELETE FROM favorites WHERE user_id = ? AND question_id = ?').run(req.userId, req.params.questionId);
-  res.json({ success: true });
+app.delete('/api/favorites/:questionId', authenticate, async (req, res) => {
+  try {
+    await pool.query(
+      'DELETE FROM favorites WHERE user_id = ? AND question_id = ?',
+      [req.userId, req.params.questionId]
+    );
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Delete favorite error:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
-app.get('/api/favorites/check/:questionId', authenticate, (req, res) => {
-  const favorite = db.prepare('SELECT id FROM favorites WHERE user_id = ? AND question_id = ?').get(req.userId, req.params.questionId);
-  res.json({ isFavorite: !!favorite });
+app.get('/api/favorites/check/:questionId', authenticate, async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      'SELECT id FROM favorites WHERE user_id = ? AND question_id = ?',
+      [req.userId, req.params.questionId]
+    );
+    res.json({ isFavorite: !!rows[0] });
+  } catch (error) {
+    console.error('Check favorite error:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // ===== RESUME ROUTES =====
 
-app.get('/api/resumes', authenticate, (req, res) => {
-  const resumes = db.prepare('SELECT * FROM resume_info WHERE user_id = ? ORDER BY created_at DESC').all(req.userId);
-  resumes.forEach(r => {
-    if (r.skills) r.skills = JSON.parse(r.skills);
-  });
-  res.json(resumes);
+app.get('/api/resumes', authenticate, async (req, res) => {
+  try {
+    const [resumes] = await pool.query(
+      'SELECT * FROM resume_info WHERE user_id = ? ORDER BY created_at DESC',
+      [req.userId]
+    );
+    
+    resumes.forEach(r => {
+      if (r.skills) r.skills = JSON.parse(r.skills);
+    });
+    res.json(resumes);
+  } catch (error) {
+    console.error('Get resumes error:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 app.post('/api/resumes', authenticate, async (req, res) => {
@@ -444,19 +586,21 @@ app.post('/api/resumes', authenticate, async (req, res) => {
       educationLength: parsed.education?.length
     });
     
-    const result = db.prepare(`
-      INSERT INTO resume_info (user_id, filename, parsed_content, skills, experience, education)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(
-      req.userId,
-      filename,
-      parsed.summary || null,
-      JSON.stringify(parsed.skills || []),
-      parsed.experience || '',
-      parsed.education || ''
+    const [result] = await pool.query(
+      `INSERT INTO resume_info (user_id, filename, parsed_content, skills, experience, education)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        req.userId,
+        filename,
+        parsed.summary || null,
+        JSON.stringify(parsed.skills || []),
+        parsed.experience || '',
+        parsed.education || ''
+      ]
     );
     
-    const resume = db.prepare('SELECT * FROM resume_info WHERE id = ?').get(result.lastInsertRowid);
+    const [resumeRows] = await pool.query('SELECT * FROM resume_info WHERE id = ?', [result.insertId]);
+    const resume = resumeRows[0];
     if (resume.skills) resume.skills = JSON.parse(resume.skills);
     
     res.json(resume);
@@ -494,19 +638,21 @@ app.post('/api/resumes/upload', authenticate, upload.single('file'), async (req,
       educationLength: parsed.education?.length
     });
     
-    const result = db.prepare(`
-      INSERT INTO resume_info (user_id, filename, parsed_content, skills, experience, education)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(
-      req.userId,
-      filename,
-      parsed.summary || null,
-      JSON.stringify(parsed.skills || []),
-      parsed.experience || '',
-      parsed.education || ''
+    const [result] = await pool.query(
+      `INSERT INTO resume_info (user_id, filename, parsed_content, skills, experience, education)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        req.userId,
+        filename,
+        parsed.summary || null,
+        JSON.stringify(parsed.skills || []),
+        parsed.experience || '',
+        parsed.education || ''
+      ]
     );
     
-    const resume = db.prepare('SELECT * FROM resume_info WHERE id = ?').get(result.lastInsertRowid);
+    const [resumeRows] = await pool.query('SELECT * FROM resume_info WHERE id = ?', [result.insertId]);
+    const resume = resumeRows[0];
     if (resume.skills) resume.skills = JSON.parse(resume.skills);
     
     res.json(resume);
@@ -516,21 +662,31 @@ app.post('/api/resumes/upload', authenticate, upload.single('file'), async (req,
   }
 });
 
-app.delete('/api/resumes/:id', authenticate, (req, res) => {
-  db.prepare('DELETE FROM resume_info WHERE id = ? AND user_id = ?').run(req.params.id, req.userId);
-  res.json({ success: true });
+app.delete('/api/resumes/:id', authenticate, async (req, res) => {
+  try {
+    await pool.query(
+      'DELETE FROM resume_info WHERE id = ? AND user_id = ?',
+      [req.params.id, req.userId]
+    );
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Delete resume error:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // ===== CONVERSATION ROUTES (Follow-up Q&A) =====
 
 // Start or get active conversation for a question
-app.get('/api/conversations/:questionId', authenticate, (req, res) => {
+app.get('/api/conversations/:questionId', authenticate, async (req, res) => {
   try {
-    const conversation = db.prepare(`
-      SELECT * FROM practice_conversations 
-      WHERE user_id = ? AND question_id = ? AND status = 'active'
-      ORDER BY updated_at DESC LIMIT 1
-    `).get(req.userId, req.params.questionId);
+    const [rows] = await pool.query(
+      `SELECT * FROM practice_conversations 
+       WHERE user_id = ? AND question_id = ? AND status = 'active'
+       ORDER BY updated_at DESC LIMIT 1`,
+      [req.userId, req.params.questionId]
+    );
+    const conversation = rows[0];
     
     if (conversation && conversation.conversation_turns) {
       conversation.conversation_turns = JSON.parse(conversation.conversation_turns);
@@ -548,7 +704,9 @@ app.post('/api/conversations', authenticate, async (req, res) => {
   const { question_id, initial_answer } = req.body;
   
   try {
-    const question = db.prepare('SELECT * FROM questions WHERE id = ?').get(question_id);
+    const [questionRows] = await pool.query('SELECT * FROM questions WHERE id = ?', [question_id]);
+    const question = questionRows[0];
+    
     if (!question) {
       return res.status(404).json({ error: 'Question not found' });
     }
@@ -560,15 +718,20 @@ app.post('/api/conversations', authenticate, async (req, res) => {
       type: 'initial',
       userAnswer: initial_answer,
       aiFeedback: feedback,
-      timestamp: new Date().toISOString()
+      timestamp: toMySQLDatetime(new Date())
     }];
     
-    const result = db.prepare(`
-      INSERT INTO practice_conversations (user_id, question_id, conversation_turns, status)
-      VALUES (?, ?, ?, 'active')
-    `).run(req.userId, question_id, JSON.stringify(conversationTurns));
+    const [result] = await pool.query(
+      `INSERT INTO practice_conversations (user_id, question_id, conversation_turns, status)
+       VALUES (?, ?, ?, 'active')`,
+      [req.userId, question_id, JSON.stringify(conversationTurns)]
+    );
     
-    const conversation = db.prepare('SELECT * FROM practice_conversations WHERE id = ?').get(result.lastInsertRowid);
+    const [conversationRows] = await pool.query(
+      'SELECT * FROM practice_conversations WHERE id = ?',
+      [result.insertId]
+    );
+    const conversation = conversationRows[0];
     conversation.conversation_turns = JSON.parse(conversation.conversation_turns);
     
     res.json(conversation);
@@ -581,12 +744,14 @@ app.post('/api/conversations', authenticate, async (req, res) => {
 // Generate follow-up question
 app.post('/api/conversations/:conversationId/follow-up', authenticate, async (req, res) => {
   try {
-    const conversation = db.prepare(`
-      SELECT c.*, q.question_ja 
-      FROM practice_conversations c
-      JOIN questions q ON c.question_id = q.id
-      WHERE c.id = ? AND c.user_id = ?
-    `).get(req.params.conversationId, req.userId);
+    const [conversationRows] = await pool.query(
+      `SELECT c.*, q.question_ja 
+       FROM practice_conversations c
+       JOIN questions q ON c.question_id = q.id
+       WHERE c.id = ? AND c.user_id = ?`,
+      [req.params.conversationId, req.userId]
+    );
+    const conversation = conversationRows[0];
     
     if (!conversation) {
       return res.status(404).json({ error: 'Conversation not found' });
@@ -616,14 +781,15 @@ app.post('/api/conversations/:conversationId/follow-up', authenticate, async (re
       expectedDepth: followUp.expectedDepth,
       userAnswer: null,
       aiFeedback: null,
-      timestamp: new Date().toISOString()
+      timestamp: toMySQLDatetime(new Date())
     });
     
-    db.prepare(`
-      UPDATE practice_conversations 
-      SET conversation_turns = ?, updated_at = datetime('now')
-      WHERE id = ?
-    `).run(JSON.stringify(turns), req.params.conversationId);
+    await pool.query(
+      `UPDATE practice_conversations 
+       SET conversation_turns = ?, updated_at = NOW()
+       WHERE id = ?`,
+      [JSON.stringify(turns), req.params.conversationId]
+    );
     
     res.json(followUp);
   } catch (error) {
@@ -637,12 +803,14 @@ app.post('/api/conversations/:conversationId/answer', authenticate, async (req, 
   const { answer } = req.body;
   
   try {
-    const conversation = db.prepare(`
-      SELECT c.*, q.question_ja 
-      FROM practice_conversations c
-      JOIN questions q ON c.question_id = q.id
-      WHERE c.id = ? AND c.user_id = ?
-    `).get(req.params.conversationId, req.userId);
+    const [conversationRows] = await pool.query(
+      `SELECT c.*, q.question_ja 
+       FROM practice_conversations c
+       JOIN questions q ON c.question_id = q.id
+       WHERE c.id = ? AND c.user_id = ?`,
+      [req.params.conversationId, req.userId]
+    );
+    const conversation = conversationRows[0];
     
     if (!conversation) {
       return res.status(404).json({ error: 'Conversation not found' });
@@ -666,11 +834,12 @@ app.post('/api/conversations/:conversationId/answer', authenticate, async (req, 
     lastTurn.userAnswer = answer;
     lastTurn.aiFeedback = evaluation;
     
-    db.prepare(`
-      UPDATE practice_conversations 
-      SET conversation_turns = ?, updated_at = datetime('now')
-      WHERE id = ?
-    `).run(JSON.stringify(turns), req.params.conversationId);
+    await pool.query(
+      `UPDATE practice_conversations 
+       SET conversation_turns = ?, updated_at = NOW()
+       WHERE id = ?`,
+      [JSON.stringify(turns), req.params.conversationId]
+    );
     
     res.json(evaluation);
   } catch (error) {
@@ -680,13 +849,14 @@ app.post('/api/conversations/:conversationId/answer', authenticate, async (req, 
 });
 
 // End conversation
-app.post('/api/conversations/:conversationId/complete', authenticate, (req, res) => {
+app.post('/api/conversations/:conversationId/complete', authenticate, async (req, res) => {
   try {
-    db.prepare(`
-      UPDATE practice_conversations 
-      SET status = 'completed', updated_at = datetime('now')
-      WHERE id = ? AND user_id = ?
-    `).run(req.params.conversationId, req.userId);
+    await pool.query(
+      `UPDATE practice_conversations 
+       SET status = 'completed', updated_at = NOW()
+       WHERE id = ? AND user_id = ?`,
+      [req.params.conversationId, req.userId]
+    );
     
     res.json({ success: true });
   } catch (error) {
@@ -696,14 +866,16 @@ app.post('/api/conversations/:conversationId/complete', authenticate, (req, res)
 });
 
 // Update favorites to include conversation
-app.post('/api/favorites', authenticate, (req, res) => {
+app.post('/api/favorites', authenticate, async (req, res) => {
   const { question_id, practice_record_id, notes, user_answer, ai_feedback, ai_corrected_version, conversation_id } = req.body;
   
   console.log('📌 Adding to favorites:', { question_id, user_id: req.userId, has_conversation: !!conversation_id });
   
   try {
     // Get question snapshot
-    const question = db.prepare('SELECT * FROM questions WHERE id = ?').get(question_id);
+    const [questionRows] = await pool.query('SELECT * FROM questions WHERE id = ?', [question_id]);
+    const question = questionRows[0];
+    
     if (!question) {
       console.error('❌ Question not found for id:', question_id);
       return res.status(404).json({ error: 'Question not found' });
@@ -715,8 +887,12 @@ app.post('/api/favorites', authenticate, (req, res) => {
     let conversationHistory = null;
     if (conversation_id) {
       console.log('📥 Fetching conversation for id:', conversation_id);
-      const conversation = db.prepare('SELECT * FROM practice_conversations WHERE id = ? AND user_id = ?')
-        .get(conversation_id, req.userId);
+      const [conversationRows] = await pool.query(
+        'SELECT * FROM practice_conversations WHERE id = ? AND user_id = ?',
+        [conversation_id, req.userId]
+      );
+      const conversation = conversationRows[0];
+      
       if (conversation) {
         conversationHistory = conversation.conversation_turns;
         console.log('✅ Found conversation with', JSON.parse(conversationHistory).length, 'turns');
@@ -727,25 +903,28 @@ app.post('/api/favorites', authenticate, (req, res) => {
 
     console.log('💾 Saving to favorites with conversation_history:', conversationHistory ? 'YES' : 'NO');
 
-    const result = db.prepare(`
-      INSERT INTO favorites (
+    const [result] = await pool.query(
+      `INSERT INTO favorites (
         user_id, question_id, practice_record_id, notes,
         question_snapshot, user_answer, ai_feedback, ai_corrected_version, conversation_history
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      req.userId,
-      question_id,
-      practice_record_id || null,
-      notes || null,
-      JSON.stringify(question),
-      user_answer || null,
-      ai_feedback || null,
-      ai_corrected_version || null,
-      conversationHistory
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        req.userId,
+        question_id,
+        practice_record_id || null,
+        notes || null,
+        JSON.stringify(question),
+        user_answer || null,
+        ai_feedback || null,
+        ai_corrected_version || null,
+        conversationHistory
+      ]
     );
     
-    const favorite = db.prepare('SELECT * FROM favorites WHERE id = ?').get(result.lastInsertRowid);
+    const [favoriteRows] = await pool.query('SELECT * FROM favorites WHERE id = ?', [result.insertId]);
+    const favorite = favoriteRows[0];
+    
     if (favorite.question_snapshot) {
       favorite.question_snapshot = JSON.parse(favorite.question_snapshot);
     }
@@ -754,7 +933,7 @@ app.post('/api/favorites', authenticate, (req, res) => {
     }
     res.json(favorite);
   } catch (error) {
-    if (error.message.includes('UNIQUE')) {
+    if (error.code === 'ER_DUP_ENTRY') {
       res.status(400).json({ error: 'Already favorited' });
     } else {
       res.status(500).json({ error: error.message });
@@ -787,19 +966,21 @@ app.post('/api/vocabulary', authenticate, async (req, res) => {
   
   try {
     // Save to local database
-    const result = db.prepare(`
-      INSERT INTO vocabulary_notes (user_id, word, translation, explanation, example_sentences, tags)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(
-      req.userId,
-      word,
-      translation || null,
-      explanation || null,
-      example_sentences ? JSON.stringify(example_sentences) : null,
-      tags ? JSON.stringify(tags) : null
+    const [result] = await pool.query(
+      `INSERT INTO vocabulary_notes (user_id, word, translation, explanation, example_sentences, tags)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        req.userId,
+        word,
+        translation || null,
+        explanation || null,
+        example_sentences ? JSON.stringify(example_sentences) : null,
+        tags ? JSON.stringify(tags) : null
+      ]
     );
     
-    const note = db.prepare('SELECT * FROM vocabulary_notes WHERE id = ?').get(result.lastInsertRowid);
+    const [noteRows] = await pool.query('SELECT * FROM vocabulary_notes WHERE id = ?', [result.insertId]);
+    const note = noteRows[0];
     if (note.example_sentences) note.example_sentences = JSON.parse(note.example_sentences);
     if (note.tags) note.tags = JSON.parse(note.tags);
     
@@ -816,8 +997,10 @@ app.post('/api/vocabulary', authenticate, async (req, res) => {
         
         if (notionResponse) {
           // Update local database with Notion page ID
-          db.prepare('UPDATE vocabulary_notes SET notion_page_id = ? WHERE id = ?')
-            .run(notionResponse.id, note.id);
+          await pool.query(
+            'UPDATE vocabulary_notes SET notion_page_id = ? WHERE id = ?',
+            [notionResponse.id, note.id]
+          );
           note.notion_page_id = notionResponse.id;
           note.synced_to_notion = true;
         }
@@ -836,24 +1019,34 @@ app.post('/api/vocabulary', authenticate, async (req, res) => {
 });
 
 // Get all vocabulary notes
-app.get('/api/vocabulary', authenticate, (req, res) => {
-  const notes = db.prepare('SELECT * FROM vocabulary_notes WHERE user_id = ? ORDER BY created_at DESC')
-    .all(req.userId);
-  
-  notes.forEach(note => {
-    if (note.example_sentences) note.example_sentences = JSON.parse(note.example_sentences);
-    if (note.tags) note.tags = JSON.parse(note.tags);
-  });
-  
-  res.json(notes);
+app.get('/api/vocabulary', authenticate, async (req, res) => {
+  try {
+    const [notes] = await pool.query(
+      'SELECT * FROM vocabulary_notes WHERE user_id = ? ORDER BY created_at DESC',
+      [req.userId]
+    );
+    
+    notes.forEach(note => {
+      if (note.example_sentences) note.example_sentences = JSON.parse(note.example_sentences);
+      if (note.tags) note.tags = JSON.parse(note.tags);
+    });
+    
+    res.json(notes);
+  } catch (error) {
+    console.error('Get vocabulary error:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Delete vocabulary note
 app.delete('/api/vocabulary/:id', authenticate, async (req, res) => {
   try {
     // Get the note to check for Notion page ID
-    const note = db.prepare('SELECT * FROM vocabulary_notes WHERE id = ? AND user_id = ?')
-      .get(req.params.id, req.userId);
+    const [noteRows] = await pool.query(
+      'SELECT * FROM vocabulary_notes WHERE id = ? AND user_id = ?',
+      [req.params.id, req.userId]
+    );
+    const note = noteRows[0];
     
     if (!note) {
       return res.status(404).json({ error: 'Vocabulary note not found' });
@@ -870,8 +1063,10 @@ app.delete('/api/vocabulary/:id', authenticate, async (req, res) => {
     }
     
     // Delete from local database
-    db.prepare('DELETE FROM vocabulary_notes WHERE id = ? AND user_id = ?')
-      .run(req.params.id, req.userId);
+    await pool.query(
+      'DELETE FROM vocabulary_notes WHERE id = ? AND user_id = ?',
+      [req.params.id, req.userId]
+    );
     
     res.json({ success: true });
   } catch (error) {
@@ -899,12 +1094,20 @@ app.get('/api/notion/status', authenticate, (req, res) => {
 });
 
 // Start server
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`✅ API Server running on http://localhost:${PORT}`);
-  console.log(`📍 Database: ${db.name}`);
+  console.log(`📍 Database: MySQL (pool connection)`);
   console.log(`📝 Notion Integration: ${isNotionEnabled() ? '✅ Enabled' : '❌ Disabled'}`);
   if (isNotionEnabled()) {
     console.log(`   API Key: ${process.env.NOTION_API_KEY?.substring(0, 15)}...`);
     console.log(`   Database: ${process.env.NOTION_DATABASE_ID?.substring(0, 15)}...`);
+  }
+  
+  // Initialize database tables
+  try {
+    await initDatabase();
+    console.log('✅ Database tables initialized successfully');
+  } catch (error) {
+    console.error('❌ Database initialization failed:', error.message);
   }
 });

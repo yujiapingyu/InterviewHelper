@@ -66,7 +66,7 @@
 |------|------|
 | **前端** | React 18, Tailwind CSS, Lucide Icons |
 | **后端** | Node.js, Express |
-| **数据库** | SQLite (better-sqlite3) |
+| **数据库** | MySQL (mysql2) |
 | **AI** | Google Gemini API (Text + Multimodal) |
 | **集成** | Notion API (可选云同步) |
 | **构建** | Vite |
@@ -78,6 +78,7 @@
 ### 系统要求
 - Node.js >= 18.0
 - npm >= 9.0
+- MySQL >= 5.7 或 8.0
 
 ### 获取API密钥
 
@@ -86,7 +87,12 @@
    - 点击"Create API Key"
    - 复制密钥（以`AI`开头）
 
-2. **Notion Integration**（可选，用于单词本同步）
+2. **MySQL数据库**（必需）
+   - 本地安装：`brew install mysql`（macOS）或从官网下载
+   - 或使用云数据库（阿里云RDS、AWS RDS等）
+   - 创建数据库：`CREATE DATABASE interview_coach CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;`
+
+3. **Notion Integration**（可选，用于单词本同步）
    - 访问：https://www.notion.so/my-integrations
    - 创建Internal Integration
    - 复制Token（以`ntn_`开头）
@@ -108,15 +114,17 @@ npm install
 
 # 3. 配置环境变量
 cp .env.example .env
-# 编辑 .env 文件，填入API密钥：
+# 编辑 .env 文件，填入配置：
 # VITE_GEMINI_API_KEY=你的Gemini密钥
+# DB_HOST=localhost（或远程MySQL地址）
+# DB_PORT=3306
+# DB_USER=root
+# DB_PASSWORD=你的MySQL密码
+# DB_NAME=interview_coach
 # NOTION_API_KEY=你的Notion密钥（可选）
 # NOTION_DATABASE_ID=你的Notion数据库ID（可选）
 
-# 4. 初始化数据库（自动创建表结构）
-npm run db:init
-
-# 5. 启动开发服务器（前端+后端）
+# 4. 启动开发服务器（前端+后端，会自动初始化数据库）
 npm run dev:all
 # 前端: http://localhost:3000
 # 后端: http://localhost:3002
@@ -152,107 +160,22 @@ pm2 startup
 
 ## 🗄️ 数据库说明
 
-### SQLite → MySQL 迁移指南
+本项目使用MySQL作为数据库。首次启动时会自动创建所有必要的表结构和默认数据。
 
-当前使用SQLite（`interview-coach.db`），如需迁移到MySQL：
+### 数据库表结构
+- `users` - 用户信息
+- `sessions` - 登录会话
+- `questions` - 面试题库
+- `practice_records` - 练习记录
+- `favorites` - 收藏/复习
+- `practice_conversations` - 对话历史
+- `vocabulary_notes` - 单词本
+- `resume_info` - 简历信息
 
-#### 1. 修改依赖
+### 手动初始化（可选）
 ```bash
-npm uninstall better-sqlite3
-npm install mysql2
-```
-
-#### 2. 修改 `server/db.js`
-```javascript
-// 替换 better-sqlite3 为 mysql2
-import mysql from 'mysql2/promise';
-
-// 创建连接池
-const pool = mysql.createPool({
-  host: process.env.DB_HOST || 'localhost',
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME || 'interview_coach',
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0
-});
-
-// 修改SQL语法差异
-// SQLite: INTEGER PRIMARY KEY AUTOINCREMENT
-// MySQL:  INT AUTO_INCREMENT PRIMARY KEY
-
-// SQLite: DATETIME DEFAULT CURRENT_TIMESTAMP
-// MySQL:  DATETIME DEFAULT CURRENT_TIMESTAMP
-
-// SQLite: TEXT
-// MySQL:  TEXT 或 VARCHAR(长度)
-
-// 修改查询语句
-// SQLite: db.prepare().get() / .all() / .run()
-// MySQL:  await pool.query()
-```
-
-#### 3. 核心差异对照
-
-| 特性 | SQLite | MySQL |
-|------|--------|-------|
-| 自增主键 | `INTEGER PRIMARY KEY AUTOINCREMENT` | `INT AUTO_INCREMENT PRIMARY KEY` |
-| 布尔类型 | `BOOLEAN` (存为0/1) | `BOOLEAN` 或 `TINYINT(1)` |
-| 文本类型 | `TEXT` | `TEXT`, `VARCHAR(255)`, `MEDIUMTEXT` |
-| JSON存储 | `TEXT` (手动序列化) | `JSON` (原生支持) |
-| 外键 | 需手动启用 `PRAGMA foreign_keys = ON` | 默认启用（InnoDB） |
-| 同步查询 | `db.prepare().run()` | 需改为 `await pool.query()` |
-
-#### 4. 迁移SQL语句示例
-
-```sql
--- users表（SQLite → MySQL）
-CREATE TABLE users (
-  id INT AUTO_INCREMENT PRIMARY KEY,  -- 改为 INT AUTO_INCREMENT
-  email VARCHAR(255) UNIQUE NOT NULL,  -- TEXT → VARCHAR
-  password_hash VARCHAR(255) NOT NULL,
-  username VARCHAR(100),
-  avatar_url VARCHAR(500),
-  target_language VARCHAR(10) DEFAULT 'ja',
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  INDEX idx_email (email)  -- 添加索引
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
--- vocabulary_notes表示例
-CREATE TABLE vocabulary_notes (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  user_id INT NOT NULL,
-  word VARCHAR(255) NOT NULL,
-  translation TEXT,
-  explanation TEXT,
-  example_sentences TEXT,  -- 或改为 JSON 类型
-  tags VARCHAR(500),        -- 或改为 JSON 类型
-  notion_page_id VARCHAR(100),
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-  INDEX idx_user_id (user_id),
-  INDEX idx_word (word)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-```
-
-#### 5. 环境变量配置
-```env
-# .env 文件新增
-DB_HOST=localhost
-DB_USER=root
-DB_PASSWORD=your_password
-DB_NAME=interview_coach
-```
-
-#### 6. 数据迁移工具
-```bash
-# 使用sqlite3命令导出数据
-sqlite3 interview-coach.db .dump > dump.sql
-
-# 手动修改dump.sql中的语法差异后导入MySQL
-mysql -u root -p interview_coach < dump.sql
+# 如果需要重新初始化数据库
+mysql -u root -p interview_coach < server/schema.sql
 ```
 
 ---
