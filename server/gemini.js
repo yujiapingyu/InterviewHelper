@@ -105,12 +105,18 @@ export async function generateQuestions(resumeInfo, existingSummaries = [], cate
 
   const categoryGuide = category === 'HR'
     ? `HR questions focusing on:
-- Motivation to apply (志望動機)
-- Self-PR based on candidate's skills: ${resumeInfo?.skills?.slice(0, 3).join(', ') || 'general skills'}
-- Career plan related to their experience
-- Strengths/weaknesses
-- Teamwork and communication
-Ask questions that reference their SPECIFIC skills and experience from the resume.`
+- Motivation and values (志望動機、価値観)
+- Self-introduction and background (NOT technical details, focus on personality and work style)
+- Career goals and long-term plans
+- Strengths and weaknesses (personal traits, not technical skills)
+- Teamwork, communication, and cultural fit
+- Work-life balance, company culture preferences
+- Handling stress and conflicts
+- Why Japan/this company specifically
+
+IMPORTANT: HR questions should focus on SOFT SKILLS and PERSONAL QUALITIES.
+Do NOT ask about specific technologies or technical implementations.
+Reference work experience ONLY in terms of achievements, team dynamics, or challenges overcome (not technical details).`
     : `Tech questions focusing on:
 - Specific projects using: ${resumeInfo?.skills?.slice(0, 3).join(', ') || 'their tech stack'}
 - Technical problem-solving with their technologies
