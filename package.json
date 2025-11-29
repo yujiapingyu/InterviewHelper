@@ -1,0 +1,38 @@
+{
+  "name": "japanese-interview-coach",
+  "version": "1.0.0",
+  "description": "日本程序员求职面试练习器 - Japanese Interview Coach for Foreign Programmers",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:all": "concurrently \"npm run dev\" \"npm run server\"",
+    "server": "node server/api.js",
+    "build": "vite build",
+    "preview": "vite preview",
+    "db:init": "node scripts/init-db.js"
+  },
+  "dependencies": {
+    "@notionhq/client": "^5.4.0",
+    "better-sqlite3": "^11.5.0",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^4.18.2",
+    "jszip": "^3.10.1",
+    "lucide-react": "^0.294.0",
+    "multer": "^2.0.2",
+    "pdf-parse": "^1.1.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-markdown": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.43",
+    "@types/react-dom": "^18.2.17",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.16",
+    "concurrently": "^8.2.2",
+    "postcss": "^8.4.32",
+    "tailwindcss": "^3.3.6",
+    "vite": "^5.0.8"
+  }
+}

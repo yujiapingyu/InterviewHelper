@@ -1,0 +1,1147 @@
+import React, { useState, useEffect } from 'react';
+import { 
+  User, LogIn, LogOut, BookOpen, Mic, FileText, Star, 
+  PlusCircle, Edit, Trash2, Play, ChevronRight, Home,
+  Upload, RefreshCw, Check, X, Loader2, MessageSquare
+} from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import { auth, questionsDB, practiceDB, favoritesDB, resumeDB } from './utils/database';
+import { getAIFeedback, transcribeAudio, generateQuestions, parseResume } from './utils/gemini';
+
+function App() {
+  const [currentUser, setCurrentUser] = useState(null);
+  const [currentView, setCurrentView] = useState('login'); // login, register, home, practice, questions, favorites, profile, resumes
+  const [questions, setQuestions] = useState([]);
+  const [favorites, setFavorites] = useState([]);
+  const [selectedQuestion, setSelectedQuestion] = useState(null);
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  // Login/Register state
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [username, setUsername] = useState('');
+
+  // Practice state
+  const [userAnswer, setUserAnswer] = useState('');
+  const [isRecording, setIsRecording] = useState(false);
+  const [mediaRecorder, setMediaRecorder] = useState(null);
+  const [audioChunks, setAudioChunks] = useState([]);
+  const [aiFeedback, setAiFeedback] = useState(null);
+  const [showModelAnswer, setShowModelAnswer] = useState(false);
+
+  // Question management
+  const [editingQuestion, setEditingQuestion] = useState(null);
+  const [questionForm, setQuestionForm] = useState({
+    category: 'HR',
+    question_ja: '',
+    question_zh: '',
+    model_answer_ja: '',
+    tips_ja: [],
+    summary: ''
+  });
+
+  // Resume state
+  const [resumes, setResumes] = useState([]);
+
+  useEffect(() => {
+    const user = auth.getCurrentUser();
+    if (user) {
+      setCurrentUser(user);
+      setCurrentView('home');
+      loadUserData(user.id);
+    }
+  }, []);
+
+  const loadUserData = async (userId) => {
+    try {
+      const allQuestions = await questionsDB.getAll(userId);
+      setQuestions(allQuestions);
+      
+      const userFavorites = await favoritesDB.getByUser(userId);
+      setFavorites(userFavorites);
+
+      const userResumes = await resumeDB.getByUser(userId);
+      setResumes(userResumes);
+    } catch (err) {
+      console.error('Error loading user data:', err);
+    }
+  };
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+
+    try {
+      const user = await auth.login(email, password);
+      setCurrentUser(user);
+      setCurrentView('home');
+      await loadUserData(user.id);
+      setEmail('');
+      setPassword('');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRegister = async (e) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+
+    try {
+      const user = await auth.register(email, password, username);
+      setCurrentUser(user);
+      setCurrentView('home');
+      await loadUserData(user.id);
+      setEmail('');
+      setPassword('');
+      setUsername('');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    await auth.logout();
+    setCurrentUser(null);
+    setCurrentView('login');
+    setQuestions([]);
+    setFavorites([]);
+    setSelectedQuestion(null);
+  };
+
+  const startPractice = (question) => {
+    setSelectedQuestion(question);
+    setUserAnswer('');
+    setAiFeedback(null);
+    setShowModelAnswer(false);
+    setCurrentView('practice');
+  };
+
+  const handleStartRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      const chunks = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          chunks.push(e.data);
+        }
+      };
+
+      recorder.onstop = async () => {
+        const audioBlob = new Blob(chunks, { type: 'audio/webm' });
+        const reader = new FileReader();
+        
+        reader.onloadend = async () => {
+          const base64Audio = reader.result.split(',')[1];
+          setLoading(true);
+          try {
+            const transcription = await transcribeAudio(base64Audio);
+            setUserAnswer(transcription);
+          } catch (err) {
+            setError('音声の書き起こしに失敗しました: ' + err.message);
+          } finally {
+            setLoading(false);
+          }
+        };
+        
+        reader.readAsDataURL(audioBlob);
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      recorder.start();
+      setMediaRecorder(recorder);
+      setIsRecording(true);
+    } catch (err) {
+      setError('マイクへのアクセスに失敗しました: ' + err.message);
+    }
+  };
+
+  const handleStopRecording = () => {
+    if (mediaRecorder && isRecording) {
+      mediaRecorder.stop();
+      setIsRecording(false);
+      setMediaRecorder(null);
+    }
+  };
+
+  const handleSubmitAnswer = async () => {
+    if (!userAnswer.trim()) {
+      setError('回答を入力してください');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
+    try {
+      const feedback = await getAIFeedback(userAnswer, selectedQuestion);
+      setAiFeedback(feedback);
+
+      // Save practice record
+      await practiceDB.create(
+        currentUser.id,
+        selectedQuestion.id,
+        userAnswer,
+        isRecording ? 'voice' : 'text',
+        feedback
+      );
+    } catch (err) {
+      setError('AIフィードバックの取得に失敗しました: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleToggleFavorite = async (questionId) => {
+    try {
+      const isFav = await favoritesDB.isFavorite(currentUser.id, questionId);
+      
+      if (isFav) {
+        await favoritesDB.remove(currentUser.id, questionId);
+      } else {
+        await favoritesDB.add(currentUser.id, questionId);
+      }
+      
+      const userFavorites = await favoritesDB.getByUser(currentUser.id);
+      setFavorites(userFavorites);
+    } catch (err) {
+      setError('お気に入りの更新に失敗しました: ' + err.message);
+    }
+  };
+
+  const handleSaveQuestion = async () => {
+    setLoading(true);
+    setError('');
+
+    try {
+      if (editingQuestion) {
+        await questionsDB.update(editingQuestion.id, questionForm);
+      } else {
+        await questionsDB.create(currentUser.id, {
+          ...questionForm,
+          is_ai_generated: false
+        });
+      }
+
+      await loadUserData(currentUser.id);
+      setCurrentView('questions');
+      setEditingQuestion(null);
+      setQuestionForm({
+        category: 'HR',
+        question_ja: '',
+        question_zh: '',
+        model_answer_ja: '',
+        tips_ja: [],
+        summary: ''
+      });
+    } catch (err) {
+      setError('質問の保存に失敗しました: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteQuestion = async (questionId) => {
+    if (!confirm('本当にこの質問を削除しますか？')) return;
+
+    try {
+      await questionsDB.delete(questionId);
+      await loadUserData(currentUser.id);
+    } catch (err) {
+      setError('質問の削除に失敗しました: ' + err.message);
+    }
+  };
+
+  const handleGenerateQuestions = async (category, count = 3) => {
+    setLoading(true);
+    setError('');
+
+    try {
+      const resumeInfo = resumes.length > 0 ? resumes[0] : null;
+      const existingSummaries = questions.map(q => q.summary).filter(Boolean);
+      
+      const newQuestions = await generateQuestions(resumeInfo, existingSummaries, category, count);
+      
+      for (const q of newQuestions) {
+        await questionsDB.create(currentUser.id, {
+          ...q,
+          category,
+          is_ai_generated: true
+        });
+      }
+
+      await loadUserData(currentUser.id);
+      alert(`${count}個の新しい質問を生成しました！`);
+    } catch (err) {
+      setError('質問の生成に失敗しました: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setLoading(true);
+    setError('');
+
+    try {
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        const content = event.target.result;
+        
+        try {
+          const parsed = await parseResume(content, file.name);
+          
+          await resumeDB.save(
+            currentUser.id,
+            file.name,
+            parsed.summary,
+            parsed.skills,
+            parsed.experience,
+            parsed.education
+          );
+
+          await loadUserData(currentUser.id);
+          alert('履歴書を正常にアップロードしました！');
+        } catch (err) {
+          setError('履歴書の解析に失敗しました: ' + err.message);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      reader.readAsText(file);
+    } catch (err) {
+      setError('ファイルの読み込みに失敗しました: ' + err.message);
+      setLoading(false);
+    }
+  };
+
+  const filteredQuestions = categoryFilter === 'all' 
+    ? questions 
+    : questions.filter(q => q.category === categoryFilter);
+
+  const favoriteQuestions = questions.filter(q => 
+    favorites.some(f => f.question_id === q.id)
+  );
+
+  // Login View
+  if (!currentUser && currentView === 'login') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
+          <div className="text-center mb-8">
+            <h1 className="text-3xl font-bold text-gray-800 mb-2">日本面接練習器</h1>
+            <p className="text-gray-600">Japanese Interview Coach</p>
+          </div>
+
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">メールアドレス</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="email@example.com"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">パスワード</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="••••••••"
+                required
+              />
+            </div>
+
+            {error && (
+              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+                {error}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <LogIn className="w-5 h-5" />}
+              ログイン
+            </button>
+          </form>
+
+          <div className="mt-6 text-center">
+            <button
+              onClick={() => setCurrentView('register')}
+              className="text-blue-600 hover:underline"
+            >
+              アカウントを作成
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Register View
+  if (!currentUser && currentView === 'register') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
+          <div className="text-center mb-8">
+            <h1 className="text-3xl font-bold text-gray-800 mb-2">新規登録</h1>
+            <p className="text-gray-600">Create Account</p>
+          </div>
+
+          <form onSubmit={handleRegister} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">ユーザー名（任意）</label>
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="山田太郎"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">メールアドレス</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="email@example.com"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">パスワード</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="••••••••"
+                required
+                minLength={6}
+              />
+            </div>
+
+            {error && (
+              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+                {error}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <User className="w-5 h-5" />}
+              登録
+            </button>
+          </form>
+
+          <div className="mt-6 text-center">
+            <button
+              onClick={() => setCurrentView('login')}
+              className="text-blue-600 hover:underline"
+            >
+              ログインに戻る
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Main App (Logged in)
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <header className="bg-white shadow-sm border-b">
+        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <h1 className="text-2xl font-bold text-gray-800">日本面接練習器</h1>
+            <span className="text-sm text-gray-500">ようこそ、{currentUser.username}さん</span>
+          </div>
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition"
+          >
+            <LogOut className="w-5 h-5" />
+            ログアウト
+          </button>
+        </div>
+      </header>
+
+      <div className="max-w-7xl mx-auto px-4 py-8">
+        {/* Navigation */}
+        <nav className="bg-white rounded-lg shadow-sm p-4 mb-8">
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => setCurrentView('home')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
+                currentView === 'home' ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200'
+              }`}
+            >
+              <Home className="w-5 h-5" />
+              ホーム
+            </button>
+            <button
+              onClick={() => setCurrentView('questions')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
+                currentView === 'questions' ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200'
+              }`}
+            >
+              <BookOpen className="w-5 h-5" />
+              質問管理
+            </button>
+            <button
+              onClick={() => setCurrentView('favorites')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
+                currentView === 'favorites' ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200'
+              }`}
+            >
+              <Star className="w-5 h-5" />
+              お気に入り ({favorites.length})
+            </button>
+            <button
+              onClick={() => setCurrentView('resumes')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
+                currentView === 'resumes' ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200'
+              }`}
+            >
+              <FileText className="w-5 h-5" />
+              履歴書 ({resumes.length})
+            </button>
+          </div>
+        </nav>
+
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6 flex items-center justify-between">
+            <span>{error}</span>
+            <button onClick={() => setError('')}><X className="w-5 h-5" /></button>
+          </div>
+        )}
+
+        {/* Home View */}
+        {currentView === 'home' && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-lg shadow-sm p-6">
+              <h2 className="text-2xl font-bold mb-4">面接練習を始めましょう</h2>
+              <p className="text-gray-600 mb-6">
+                カテゴリを選択して、日本語面接の練習を開始してください。
+                AI が あなたの回答を分析し、フィードバックを提供します。
+              </p>
+
+              <div className="grid md:grid-cols-2 gap-4 mb-6">
+                <div className="border-2 border-blue-200 rounded-lg p-6 hover:border-blue-400 transition cursor-pointer"
+                     onClick={() => { setCategoryFilter('HR'); setCurrentView('questions'); }}>
+                  <h3 className="text-xl font-semibold mb-2">HR / 一般質問</h3>
+                  <p className="text-gray-600 mb-4">志望動機、自己PR、キャリアプランなど</p>
+                  <div className="text-blue-600 font-medium">
+                    {questions.filter(q => q.category === 'HR').length} 問
+                  </div>
+                </div>
+
+                <div className="border-2 border-green-200 rounded-lg p-6 hover:border-green-400 transition cursor-pointer"
+                     onClick={() => { setCategoryFilter('Tech'); setCurrentView('questions'); }}>
+                  <h3 className="text-xl font-semibold mb-2">Tech / 技術質問</h3>
+                  <p className="text-gray-600 mb-4">プロジェクト経験、技術スタック、問題解決など</p>
+                  <div className="text-green-600 font-medium">
+                    {questions.filter(q => q.category === 'Tech').length} 問
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h4 className="font-semibold mb-2">💡 PREP法を意識しましょう</h4>
+                <ul className="text-sm text-gray-700 space-y-1">
+                  <li><strong>Point:</strong> 結論を先に述べる</li>
+                  <li><strong>Reason:</strong> その理由を説明する</li>
+                  <li><strong>Example:</strong> 具体例を示す</li>
+                  <li><strong>Point:</strong> 再度結論を述べる</li>
+                </ul>
+              </div>
+            </div>
+
+            {/* Stats */}
+            <div className="grid md:grid-cols-3 gap-4">
+              <div className="bg-white rounded-lg shadow-sm p-6">
+                <div className="text-3xl font-bold text-blue-600">{questions.length}</div>
+                <div className="text-gray-600">利用可能な質問</div>
+              </div>
+              <div className="bg-white rounded-lg shadow-sm p-6">
+                <div className="text-3xl font-bold text-green-600">{favorites.length}</div>
+                <div className="text-gray-600">お気に入り</div>
+              </div>
+              <div className="bg-white rounded-lg shadow-sm p-6">
+                <div className="text-3xl font-bold text-purple-600">{resumes.length}</div>
+                <div className="text-gray-600">アップロード済み履歴書</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Questions View */}
+        {currentView === 'questions' && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-lg shadow-sm p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-bold">質問管理</h2>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      setEditingQuestion(null);
+                      setQuestionForm({
+                        category: 'HR',
+                        question_ja: '',
+                        question_zh: '',
+                        model_answer_ja: '',
+                        tips_ja: [],
+                        summary: ''
+                      });
+                      setCurrentView('editQuestion');
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                  >
+                    <PlusCircle className="w-5 h-5" />
+                    手動追加
+                  </button>
+                  <button
+                    onClick={() => handleGenerateQuestions(categoryFilter === 'all' ? 'HR' : categoryFilter, 3)}
+                    disabled={loading}
+                    className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+                  >
+                    {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <RefreshCw className="w-5 h-5" />}
+                    AI生成
+                  </button>
+                </div>
+              </div>
+
+              {/* Category Filter */}
+              <div className="flex gap-2 mb-6">
+                <button
+                  onClick={() => setCategoryFilter('all')}
+                  className={`px-4 py-2 rounded-lg ${categoryFilter === 'all' ? 'bg-gray-800 text-white' : 'bg-gray-100'}`}
+                >
+                  すべて ({questions.length})
+                </button>
+                <button
+                  onClick={() => setCategoryFilter('HR')}
+                  className={`px-4 py-2 rounded-lg ${categoryFilter === 'HR' ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}
+                >
+                  HR ({questions.filter(q => q.category === 'HR').length})
+                </button>
+                <button
+                  onClick={() => setCategoryFilter('Tech')}
+                  className={`px-4 py-2 rounded-lg ${categoryFilter === 'Tech' ? 'bg-green-600 text-white' : 'bg-gray-100'}`}
+                >
+                  Tech ({questions.filter(q => q.category === 'Tech').length})
+                </button>
+              </div>
+
+              {/* Questions List */}
+              <div className="space-y-4">
+                {filteredQuestions.map((question) => (
+                  <div key={question.id} className="border rounded-lg p-4 hover:border-blue-300 transition">
+                    <div className="flex items-start justify-between mb-2">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className={`px-2 py-1 text-xs rounded ${
+                            question.category === 'HR' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'
+                          }`}>
+                            {question.category}
+                          </span>
+                          {question.is_ai_generated && (
+                            <span className="px-2 py-1 text-xs rounded bg-purple-100 text-purple-700">AI生成</span>
+                          )}
+                        </div>
+                        <h3 className="font-semibold text-lg mb-1">{question.question_ja}</h3>
+                        {question.question_zh && (
+                          <p className="text-gray-600 text-sm">{question.question_zh}</p>
+                        )}
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleToggleFavorite(question.id)}
+                          className={`p-2 rounded-lg ${
+                            favorites.some(f => f.question_id === question.id)
+                              ? 'text-yellow-500 bg-yellow-50'
+                              : 'text-gray-400 hover:bg-gray-100'
+                          }`}
+                        >
+                          <Star className="w-5 h-5" fill={favorites.some(f => f.question_id === question.id) ? 'currentColor' : 'none'} />
+                        </button>
+                        {question.user_id && (
+                          <>
+                            <button
+                              onClick={() => {
+                                setEditingQuestion(question);
+                                setQuestionForm({
+                                  category: question.category,
+                                  question_ja: question.question_ja,
+                                  question_zh: question.question_zh || '',
+                                  model_answer_ja: question.model_answer_ja || '',
+                                  tips_ja: question.tips_ja || [],
+                                  summary: question.summary || ''
+                                });
+                                setCurrentView('editQuestion');
+                              }}
+                              className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg"
+                            >
+                              <Edit className="w-5 h-5" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteQuestion(question.id)}
+                              className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
+                            >
+                              <Trash2 className="w-5 h-5" />
+                            </button>
+                          </>
+                        )}
+                        <button
+                          onClick={() => startPractice(question)}
+                          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+                        >
+                          <Play className="w-4 h-4" />
+                          練習
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                {filteredQuestions.length === 0 && (
+                  <div className="text-center py-12 text-gray-500">
+                    質問がありません。AI生成または手動で追加してください。
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Edit Question View */}
+        {currentView === 'editQuestion' && (
+          <div className="bg-white rounded-lg shadow-sm p-6">
+            <h2 className="text-2xl font-bold mb-6">
+              {editingQuestion ? '質問を編集' : '新しい質問を追加'}
+            </h2>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block font-medium mb-2">カテゴリ</label>
+                <select
+                  value={questionForm.category}
+                  onChange={(e) => setQuestionForm({...questionForm, category: e.target.value})}
+                  className="w-full px-4 py-2 border rounded-lg"
+                >
+                  <option value="HR">HR / 一般</option>
+                  <option value="Tech">Tech / 技術</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-medium mb-2">質問（日本語）</label>
+                <textarea
+                  value={questionForm.question_ja}
+                  onChange={(e) => setQuestionForm({...questionForm, question_ja: e.target.value})}
+                  className="w-full px-4 py-2 border rounded-lg"
+                  rows={3}
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block font-medium mb-2">質問（中国語）</label>
+                <textarea
+                  value={questionForm.question_zh}
+                  onChange={(e) => setQuestionForm({...questionForm, question_zh: e.target.value})}
+                  className="w-full px-4 py-2 border rounded-lg"
+                  rows={3}
+                />
+              </div>
+
+              <div>
+                <label className="block font-medium mb-2">模範回答（PREP法）</label>
+                <textarea
+                  value={questionForm.model_answer_ja}
+                  onChange={(e) => setQuestionForm({...questionForm, model_answer_ja: e.target.value})}
+                  className="w-full px-4 py-2 border rounded-lg"
+                  rows={8}
+                  placeholder="【Point】...&#10;【Reason】...&#10;【Example】...&#10;【Point】..."
+                />
+              </div>
+
+              <div>
+                <label className="block font-medium mb-2">回答のコツ（カンマ区切り）</label>
+                <input
+                  type="text"
+                  value={Array.isArray(questionForm.tips_ja) ? questionForm.tips_ja.join(', ') : ''}
+                  onChange={(e) => setQuestionForm({
+                    ...questionForm, 
+                    tips_ja: e.target.value.split(',').map(t => t.trim()).filter(Boolean)
+                  })}
+                  className="w-full px-4 py-2 border rounded-lg"
+                  placeholder="コツ1, コツ2, コツ3"
+                />
+              </div>
+
+              <div>
+                <label className="block font-medium mb-2">要約（英語、AI重複チェック用）</label>
+                <input
+                  type="text"
+                  value={questionForm.summary}
+                  onChange={(e) => setQuestionForm({...questionForm, summary: e.target.value})}
+                  className="w-full px-4 py-2 border rounded-lg"
+                  placeholder="Brief summary in English"
+                />
+              </div>
+
+              <div className="flex gap-4">
+                <button
+                  onClick={handleSaveQuestion}
+                  disabled={loading}
+                  className="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Check className="w-5 h-5" />}
+                  保存
+                </button>
+                <button
+                  onClick={() => setCurrentView('questions')}
+                  className="flex-1 bg-gray-200 py-2 rounded-lg hover:bg-gray-300"
+                >
+                  キャンセル
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Practice View */}
+        {currentView === 'practice' && selectedQuestion && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-lg shadow-sm p-6">
+              <div className="flex items-center justify-between mb-4">
+                <span className={`px-3 py-1 rounded-full text-sm ${
+                  selectedQuestion.category === 'HR' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'
+                }`}>
+                  {selectedQuestion.category}
+                </span>
+                <button
+                  onClick={() => handleToggleFavorite(selectedQuestion.id)}
+                  className={`p-2 rounded-lg ${
+                    favorites.some(f => f.question_id === selectedQuestion.id)
+                      ? 'text-yellow-500 bg-yellow-50'
+                      : 'text-gray-400 hover:bg-gray-100'
+                  }`}
+                >
+                  <Star className="w-6 h-6" fill={favorites.some(f => f.question_id === selectedQuestion.id) ? 'currentColor' : 'none'} />
+                </button>
+              </div>
+
+              <h2 className="text-2xl font-bold mb-2">{selectedQuestion.question_ja}</h2>
+              {selectedQuestion.question_zh && (
+                <p className="text-gray-600 mb-4">{selectedQuestion.question_zh}</p>
+              )}
+
+              {/* Tips */}
+              {selectedQuestion.tips_ja && selectedQuestion.tips_ja.length > 0 && (
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
+                  <h3 className="font-semibold mb-2">💡 回答のコツ</h3>
+                  <ul className="list-disc list-inside space-y-1 text-sm">
+                    {selectedQuestion.tips_ja.map((tip, idx) => (
+                      <li key={idx}>{tip}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Answer Input */}
+              <div className="mb-4">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="font-medium">あなたの回答</label>
+                  <div className="flex gap-2">
+                    {!isRecording ? (
+                      <button
+                        onClick={handleStartRecording}
+                        className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+                      >
+                        <Mic className="w-5 h-5" />
+                        音声で回答
+                      </button>
+                    ) : (
+                      <button
+                        onClick={handleStopRecording}
+                        className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 animate-pulse"
+                      >
+                        <Mic className="w-5 h-5" />
+                        録音中...
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <textarea
+                  value={userAnswer}
+                  onChange={(e) => setUserAnswer(e.target.value)}
+                  className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                  rows={8}
+                  placeholder="ここに回答を入力してください。音声で回答することもできます。"
+                />
+              </div>
+
+              <button
+                onClick={handleSubmitAnswer}
+                disabled={loading || !userAnswer.trim()}
+                className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    AIが分析中...
+                  </>
+                ) : (
+                  <>
+                    <MessageSquare className="w-5 h-5" />
+                    AIフィードバックを取得
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* AI Feedback */}
+            {aiFeedback && (
+              <div className="bg-white rounded-lg shadow-sm p-6">
+                <h3 className="text-xl font-bold mb-4">AIフィードバック</h3>
+                
+                <div className="mb-6">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-semibold">スコア</span>
+                    <span className="text-3xl font-bold text-blue-600">{aiFeedback.score}/100</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-3">
+                    <div
+                      className={`h-3 rounded-full ${
+                        aiFeedback.score >= 80 ? 'bg-green-500' :
+                        aiFeedback.score >= 60 ? 'bg-yellow-500' : 'bg-red-500'
+                      }`}
+                      style={{width: `${aiFeedback.score}%`}}
+                    />
+                  </div>
+                </div>
+
+                <div className="mb-6">
+                  <h4 className="font-semibold mb-2">総評</h4>
+                  <p className="text-gray-700">{aiFeedback.feedback}</p>
+                </div>
+
+                <div className="mb-6">
+                  <h4 className="font-semibold mb-2">改善アドバイス</h4>
+                  <ul className="space-y-2">
+                    {aiFeedback.advice?.map((item, idx) => (
+                      <li key={idx} className="flex gap-2">
+                        <ChevronRight className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div>
+                  <h4 className="font-semibold mb-2">修正版（商務日本語）</h4>
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-4 whitespace-pre-wrap markdown-content">
+                    <ReactMarkdown>{aiFeedback.correctedVersion}</ReactMarkdown>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Model Answer */}
+            {selectedQuestion.model_answer_ja && (
+              <div className="bg-white rounded-lg shadow-sm p-6">
+                <button
+                  onClick={() => setShowModelAnswer(!showModelAnswer)}
+                  className="flex items-center justify-between w-full mb-4"
+                >
+                  <h3 className="text-xl font-bold">模範回答を見る</h3>
+                  <ChevronRight className={`w-6 h-6 transition-transform ${showModelAnswer ? 'rotate-90' : ''}`} />
+                </button>
+                
+                {showModelAnswer && (
+                  <div className="bg-gray-50 border rounded-lg p-4 whitespace-pre-wrap">
+                    {selectedQuestion.model_answer_ja}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <button
+              onClick={() => setCurrentView('questions')}
+              className="w-full bg-gray-200 py-3 rounded-lg hover:bg-gray-300"
+            >
+              質問一覧に戻る
+            </button>
+          </div>
+        )}
+
+        {/* Favorites View */}
+        {currentView === 'favorites' && (
+          <div className="bg-white rounded-lg shadow-sm p-6">
+            <h2 className="text-2xl font-bold mb-6">お気に入りの質問</h2>
+
+            {favoriteQuestions.length === 0 ? (
+              <div className="text-center py-12 text-gray-500">
+                お気に入りがありません。質問を★マークでお気に入りに追加してください。
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {favoriteQuestions.map((question) => (
+                  <div key={question.id} className="border rounded-lg p-4">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className={`px-2 py-1 text-xs rounded ${
+                            question.category === 'HR' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'
+                          }`}>
+                            {question.category}
+                          </span>
+                        </div>
+                        <h3 className="font-semibold text-lg mb-1">{question.question_ja}</h3>
+                        {question.question_zh && (
+                          <p className="text-gray-600 text-sm">{question.question_zh}</p>
+                        )}
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleToggleFavorite(question.id)}
+                          className="p-2 text-yellow-500 bg-yellow-50 rounded-lg"
+                        >
+                          <Star className="w-5 h-5" fill="currentColor" />
+                        </button>
+                        <button
+                          onClick={() => startPractice(question)}
+                          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+                        >
+                          <Play className="w-4 h-4" />
+                          練習
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Resumes View */}
+        {currentView === 'resumes' && (
+          <div className="bg-white rounded-lg shadow-sm p-6">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold">履歴書管理</h2>
+              <label className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer">
+                <Upload className="w-5 h-5" />
+                履歴書をアップロード
+                <input
+                  type="file"
+                  onChange={handleFileUpload}
+                  accept=".txt,.pdf,.doc,.docx"
+                  className="hidden"
+                />
+              </label>
+            </div>
+
+            <div className="mb-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <p className="text-sm text-gray-700">
+                <strong>プライバシー保護:</strong> ファイルはアップロード後、AIによって解析され、重要な情報のみが保存されます。
+                元のファイルは保存されません。
+              </p>
+            </div>
+
+            {resumes.length === 0 ? (
+              <div className="text-center py-12 text-gray-500">
+                履歴書がアップロードされていません。
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {resumes.map((resume) => (
+                  <div key={resume.id} className="border rounded-lg p-4">
+                    <div className="flex items-start justify-between mb-4">
+                      <div>
+                        <h3 className="font-semibold text-lg">{resume.filename}</h3>
+                        <p className="text-sm text-gray-500">
+                          {new Date(resume.created_at).toLocaleDateString('ja-JP')}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => resumeDB.delete(resume.id).then(() => loadUserData(currentUser.id))}
+                        className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
+                      >
+                        <Trash2 className="w-5 h-5" />
+                      </button>
+                    </div>
+
+                    <div className="space-y-3">
+                      {resume.skills && resume.skills.length > 0 && (
+                        <div>
+                          <h4 className="font-medium mb-1">スキル:</h4>
+                          <div className="flex flex-wrap gap-2">
+                            {resume.skills.map((skill, idx) => (
+                              <span key={idx} className="px-2 py-1 bg-blue-100 text-blue-700 text-sm rounded">
+                                {skill}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {resume.experience && (
+                        <div>
+                          <h4 className="font-medium mb-1">経験:</h4>
+                          <p className="text-sm text-gray-700">{resume.experience}</p>
+                        </div>
+                      )}
+
+                      {resume.education && (
+                        <div>
+                          <h4 className="font-medium mb-1">学歴:</h4>
+                          <p className="text-sm text-gray-700">{resume.education}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default App;

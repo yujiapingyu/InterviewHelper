@@ -1,0 +1,2235 @@
+import React, { useState, useEffect } from 'react';
+import { 
+  User, LogIn, LogOut, BookOpen, Mic, FileText, Star, 
+  PlusCircle, Edit, Trash2, Play, ChevronRight, Home,
+  Upload, RefreshCw, Check, X, Loader2, MessageSquare, Shuffle, Send, Book, Search, RotateCcw, Eye, EyeOff
+} from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import { auth, questionsAPI, practiceAPI, favoritesAPI, resumeAPI, conversationAPI, vocabularyAPI } from './utils/api';
+import { getAIFeedback, startSpeechRecognition } from './utils/gemini';
+
+function App() {
+  const [currentUser, setCurrentUser] = useState(null);
+  const [currentView, setCurrentView] = useState('login');
+  const [questions, setQuestions] = useState([]);
+  const [favorites, setFavorites] = useState([]);
+  const [selectedQuestion, setSelectedQuestion] = useState(null);
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  // Login/Register state
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [username, setUsername] = useState('');
+
+  // Practice state
+  const [userAnswer, setUserAnswer] = useState('');
+  const [isRecording, setIsRecording] = useState(false);
+  const [mediaRecorder, setMediaRecorder] = useState(null);
+  const [aiFeedback, setAiFeedback] = useState(null);
+  const [showModelAnswer, setShowModelAnswer] = useState(false);
+
+  // Conversation state (follow-up Q&A)
+  const [activeConversation, setActiveConversation] = useState(null);
+  const [conversationMode, setConversationMode] = useState(false);
+  const [followUpAnswer, setFollowUpAnswer] = useState('');
+  const [pendingFollowUp, setPendingFollowUp] = useState(null);
+
+  // Vocabulary state (word selection)
+  const [selectedText, setSelectedText] = useState('');
+  const [vocabularyAnalysis, setVocabularyAnalysis] = useState(null);
+  const [showVocabularyPopup, setShowVocabularyPopup] = useState(false);
+  const [vocabularyNotes, setVocabularyNotes] = useState([]);
+  const [floatingSearchPos, setFloatingSearchPos] = useState(null);
+  const [notionEnabled, setNotionEnabled] = useState(false);
+  
+  // Vocabulary review mode
+  const [reviewMode, setReviewMode] = useState(false);
+  const [currentReviewIndex, setCurrentReviewIndex] = useState(0);
+  const [showAnswer, setShowAnswer] = useState(false);
+
+  // Question management
+  const [editingQuestion, setEditingQuestion] = useState(null);
+  const [questionForm, setQuestionForm] = useState({
+    category: 'HR',
+    question_ja: '',
+    question_zh: '',
+    model_answer_ja: '',
+    tips_ja: [],
+    summary: ''
+  });
+
+  // Resume state
+  const [resumes, setResumes] = useState([]);
+
+  useEffect(() => {
+    loadCurrentUser();
+  }, []);
+
+  const loadCurrentUser = async () => {
+    try {
+      const user = await auth.getCurrentUser();
+      if (user) {
+        setCurrentUser(user);
+        setCurrentView('home');
+        await loadUserData();
+      }
+    } catch (err) {
+      console.error('Error loading user:', err);
+    }
+  };
+
+  const loadUserData = async () => {
+    try {
+      const [questionsData, favoritesData, resumesData, vocabularyData, notionStatus] = await Promise.all([
+        questionsAPI.getAll(),
+        favoritesAPI.getAll(),
+        resumeAPI.getAll(),
+        vocabularyAPI.getAll(),
+        vocabularyAPI.getNotionStatus()
+      ]);
+      
+      setQuestions(questionsData);
+      setFavorites(favoritesData);
+      setResumes(resumesData);
+      setVocabularyNotes(vocabularyData);
+      setNotionEnabled(notionStatus.enabled);
+    } catch (err) {
+      console.error('Error loading user data:', err);
+    }
+  };
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+
+    try {
+      const user = await auth.login(email, password);
+      setCurrentUser(user);
+      setCurrentView('home');
+      await loadUserData();
+      setEmail('');
+      setPassword('');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRegister = async (e) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+
+    try {
+      const user = await auth.register(email, password, username);
+      setCurrentUser(user);
+      setCurrentView('home');
+      await loadUserData();
+      setEmail('');
+      setPassword('');
+      setUsername('');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    await auth.logout();
+    setCurrentUser(null);
+    setCurrentView('login');
+    setQuestions([]);
+    setFavorites([]);
+    setSelectedQuestion(null);
+  };
+
+  const startPractice = (question) => {
+    // Check if this question is favorited and has saved answer
+    const favorite = favorites.find(f => f.question_id === question.id);
+    
+    if (favorite && favorite.user_answer) {
+      // Ask user if they want to load previous answer or start fresh
+      const loadPrevious = window.confirm(
+        'この問題には保存された回答があります。\n\n'
+        + 'OK: 前回の回答を読み込む\n'
+        + 'キャンセル: 新しく始める'
+      );
+      
+      if (loadPrevious) {
+        setUserAnswer(favorite.user_answer || '');
+        if (favorite.ai_feedback) {
+          try {
+            setAiFeedback(JSON.parse(favorite.ai_feedback));
+          } catch (e) {
+            setAiFeedback(null);
+          }
+        } else {
+          setAiFeedback(null);
+        }
+      } else {
+        setUserAnswer('');
+        setAiFeedback(null);
+      }
+    } else {
+      setUserAnswer('');
+      setAiFeedback(null);
+    }
+    
+    setSelectedQuestion(question);
+    setShowModelAnswer(false);
+    setCurrentView('practice');
+  };
+
+  const startRandomPractice = async (category) => {
+    setLoading(true);
+    setError('');
+    try {
+      const question = await questionsAPI.getRandom(category);
+      if (question) {
+        startPractice(question);
+      } else {
+        setError('この カテゴリに質問がありません');
+      }
+    } catch (err) {
+      setError('ランダム質問の取得に失敗しました: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSkipToNext = async () => {
+    if (!selectedQuestion) return;
+    setLoading(true);
+    setError('');
+    setUserAnswer('');
+    setAiFeedback(null);
+    try {
+      const question = await questionsAPI.getRandom(selectedQuestion.category);
+      if (question) {
+        setSelectedQuestion(question);
+        setCurrentView('practice');
+      } else {
+        setError('このカテゴリに質問がありません');
+      }
+    } catch (err) {
+      setError('次の質問の取得に失敗しました: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleStartRecording = async () => {
+    try {
+      const recognition = startSpeechRecognition(
+        (finalTranscript, interimTranscript) => {
+          // If in conversation mode with pending follow-up, set follow-up answer
+          if (conversationMode && pendingFollowUp && !pendingFollowUp.evaluation) {
+            setFollowUpAnswer(finalTranscript);
+          } else {
+            // Otherwise set user answer
+            setUserAnswer(finalTranscript);
+          }
+        },
+        (error) => {
+          setError('音声認識エラー: ' + error.message);
+          setIsRecording(false);
+          setMediaRecorder(null);
+        }
+      );
+
+      setMediaRecorder(recognition); // Store recognition object for cleanup
+      setIsRecording(true);
+    } catch (err) {
+      setError('音声認識の開始に失敗しました: ' + err.message);
+    }
+  };
+
+  const handleStopRecording = () => {
+    if (mediaRecorder && isRecording) {
+      mediaRecorder.stop(); // Stop speech recognition
+      setIsRecording(false);
+      setMediaRecorder(null);
+    }
+  };
+
+  const handleSubmitAnswer = async () => {
+    if (!userAnswer.trim()) {
+      setError('回答を入力してください');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
+    try {
+      const feedback = await getAIFeedback(userAnswer, selectedQuestion);
+      setAiFeedback(feedback);
+
+      await practiceAPI.create(
+        selectedQuestion.id,
+        userAnswer,
+        isRecording ? 'voice' : 'text',
+        feedback
+      );
+    } catch (err) {
+      setError('AIフィードバックの取得に失敗しました: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ===== CONVERSATION MODE FUNCTIONS =====
+
+  const handleEnableConversationMode = async () => {
+    if (!userAnswer.trim() || !aiFeedback) {
+      setError('まず最初の回答を提出してください');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
+    try {
+      const conversation = await conversationAPI.create(selectedQuestion.id, userAnswer);
+      setActiveConversation(conversation);
+      setConversationMode(true);
+    } catch (err) {
+      setError('対話モードの開始に失敗しました: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRequestFollowUp = async () => {
+    if (!activeConversation) {
+      setError('対話モードが有効になっていません');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
+    try {
+      const followUp = await conversationAPI.generateFollowUp(activeConversation.id);
+      setPendingFollowUp(followUp);
+      setFollowUpAnswer('');
+    } catch (err) {
+      setError('追問の生成に失敗しました: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSubmitFollowUpAnswer = async () => {
+    if (!followUpAnswer.trim()) {
+      setError('回答を入力してください');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
+    try {
+      const evaluation = await conversationAPI.answerFollowUp(activeConversation.id, followUpAnswer);
+      
+      // Update conversation turns
+      const updatedConversation = await conversationAPI.getActive(selectedQuestion.id);
+      setActiveConversation(updatedConversation);
+      
+      // Clear pending follow-up
+      setPendingFollowUp({ ...pendingFollowUp, evaluation });
+      setFollowUpAnswer('');
+      
+      // Show whether more follow-ups are recommended
+      if (!evaluation.needsMoreFollowUp) {
+        alert('素晴らしい回答です！この質問の練習は完了です。');
+      }
+    } catch (err) {
+      setError('回答の評価に失敗しました: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCompleteConversation = async () => {
+    if (!activeConversation) return;
+
+    try {
+      console.log('🔄 Completing conversation:', activeConversation.id);
+      await conversationAPI.complete(activeConversation.id);
+      
+      // Check if already favorited
+      const existingFavorite = favorites.find(f => f.question_id === selectedQuestion.id);
+      
+      console.log('💾 Saving to favorites with conversation_id:', activeConversation.id);
+      console.log('📊 Existing favorite:', existingFavorite ? 'YES' : 'NO');
+      
+      if (existingFavorite) {
+        // Update existing favorite with conversation history
+        console.log('⬆️ Updating existing favorite...');
+        await favoritesAPI.update(
+          existingFavorite.id,
+          userAnswer || null,
+          aiFeedback || null,
+          aiFeedback?.correctedVersion || null,
+          activeConversation.id
+        );
+      } else {
+        // Add new favorite with conversation history
+        console.log('➕ Adding new favorite...');
+        await favoritesAPI.add(
+          selectedQuestion.id,
+          null,
+          '',
+          userAnswer || null,
+          aiFeedback || null,
+          aiFeedback?.correctedVersion || null,
+          activeConversation.id
+        );
+      }
+      
+      const updatedFavorites = await favoritesAPI.getAll();
+      console.log('✅ Updated favorites:', updatedFavorites.length);
+      setFavorites(updatedFavorites);
+      
+      alert('対話を完了し、お気に入りに保存しました！');
+      
+      // Reset conversation state
+      setConversationMode(false);
+      setActiveConversation(null);
+      setPendingFollowUp(null);
+      setFollowUpAnswer('');
+    } catch (err) {
+      setError('対話の完了に失敗しました: ' + err.message);
+    }
+  };
+
+  // ===== END CONVERSATION MODE FUNCTIONS =====
+
+  // ===== VOCABULARY FUNCTIONS =====
+  
+  const handleTextSelection = () => {
+    const selection = window.getSelection();
+    const text = selection.toString().trim();
+    
+    if (text && text.length > 0 && text.length < 100) {
+      setSelectedText(text);
+      
+      // Get selection position for floating icon
+      const range = selection.getRangeAt(0);
+      const rect = range.getBoundingClientRect();
+      
+      setFloatingSearchPos({
+        x: rect.right + 10,
+        y: rect.top + window.scrollY - 5
+      });
+    } else {
+      setSelectedText('');
+      setFloatingSearchPos(null);
+    }
+  };
+
+  const handleAnalyzeVocabulary = async () => {
+    if (!selectedText) return;
+    
+    setLoading(true);
+    setError('');
+    
+    try {
+      const analysis = await vocabularyAPI.analyze(selectedText);
+      setVocabularyAnalysis(analysis);
+      setShowVocabularyPopup(true);
+    } catch (err) {
+      setError('词汇分析失败: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSaveVocabulary = async () => {
+    if (!vocabularyAnalysis) return;
+    
+    setLoading(true);
+    try {
+      console.log('📤 Saving vocabulary:', selectedText);
+      const savedNote = await vocabularyAPI.save({
+        word: selectedText,
+        translation: vocabularyAnalysis.translation,
+        explanation: vocabularyAnalysis.explanation,
+        example_sentences: vocabularyAnalysis.exampleSentences,
+        tags: vocabularyAnalysis.tags
+      });
+      
+      console.log('✅ Vocabulary saved:', savedNote);
+      
+      // Reload vocabulary notes
+      const updatedNotes = await vocabularyAPI.getAll();
+      setVocabularyNotes(updatedNotes);
+      
+      // Show detailed sync status
+      let syncMessage;
+      if (savedNote.synced_to_notion) {
+        syncMessage = `✅ 保存成功！\n📝 已同步到Notion\n🔗 Notion Page ID: ${savedNote.notion_page_id?.substring(0, 8)}...`;
+      } else if (notionEnabled) {
+        syncMessage = '✅ 已保存到本地数据库\n⚠️ Notion同步失败（请查看控制台日志）';
+      } else {
+        syncMessage = '✅ 保存成功！';
+      }
+      
+      alert(syncMessage);
+      setShowVocabularyPopup(false);
+      setSelectedText('');
+      setVocabularyAnalysis(null);
+      setFloatingSearchPos(null);
+    } catch (err) {
+      console.error('❌ Save vocabulary error:', err);
+      setError('保存失败: ' + err.message);
+      alert('❌ 保存失败: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteVocabulary = async (id) => {
+    if (!confirm('确定要删除这个词汇吗？')) return;
+    
+    try {
+      await vocabularyAPI.delete(id);
+      const updatedNotes = await vocabularyAPI.getAll();
+      setVocabularyNotes(updatedNotes);
+    } catch (err) {
+      setError('删除失败: ' + err.message);
+    }
+  };
+
+  const startReviewMode = () => {
+    if (vocabularyNotes.length === 0) {
+      alert('还没有单词可以复习！');
+      return;
+    }
+    setReviewMode(true);
+    setCurrentReviewIndex(0);
+    setShowAnswer(false);
+  };
+
+  const exitReviewMode = () => {
+    setReviewMode(false);
+    setCurrentReviewIndex(0);
+    setShowAnswer(false);
+  };
+
+  const nextReviewCard = () => {
+    setShowAnswer(false);
+    if (currentReviewIndex < vocabularyNotes.length - 1) {
+      setCurrentReviewIndex(currentReviewIndex + 1);
+    } else {
+      setCurrentReviewIndex(0);
+    }
+  };
+
+  const prevReviewCard = () => {
+    setShowAnswer(false);
+    if (currentReviewIndex > 0) {
+      setCurrentReviewIndex(currentReviewIndex - 1);
+    } else {
+      setCurrentReviewIndex(vocabularyNotes.length - 1);
+    }
+  };
+
+  // ===== END VOCABULARY FUNCTIONS =====
+
+  const handleToggleFavorite = async (questionId) => {
+    console.log('🔍 handleToggleFavorite called with questionId:', questionId);
+    console.log('🔍 selectedQuestion:', selectedQuestion);
+    
+    try {
+      const isFav = await favoritesAPI.isFavorite(questionId);
+      
+      if (isFav) {
+        console.log('➖ Removing from favorites:', questionId);
+        await favoritesAPI.remove(questionId);
+      } else {
+        console.log('➕ Adding to favorites:', questionId);
+        console.log('   userAnswer:', userAnswer?.substring(0, 50));
+        console.log('   aiFeedback:', aiFeedback);
+        // When adding to favorites, save current answer and AI feedback if available
+        await favoritesAPI.add(
+          questionId,
+          null,
+          '',
+          userAnswer || null,
+          aiFeedback || null,
+          aiFeedback?.correctedVersion || null
+        );
+      }
+      
+      const updatedFavorites = await favoritesAPI.getAll();
+      setFavorites(updatedFavorites);
+    } catch (err) {
+      console.error('❌ Favorite toggle error:', err);
+      setError('お気に入りの更新に失敗しました: ' + err.message);
+    }
+  };
+
+  const handleSaveQuestion = async () => {
+    setLoading(true);
+    setError('');
+
+    try {
+      if (editingQuestion) {
+        await questionsAPI.update(editingQuestion.id, questionForm);
+      } else {
+        await questionsAPI.create({
+          ...questionForm,
+          is_ai_generated: false
+        });
+      }
+
+      const updatedQuestions = await questionsAPI.getAll();
+      setQuestions(updatedQuestions);
+      setCurrentView('questions');
+      setEditingQuestion(null);
+      setQuestionForm({
+        category: 'HR',
+        question_ja: '',
+        question_zh: '',
+        model_answer_ja: '',
+        tips_ja: [],
+        summary: ''
+      });
+    } catch (err) {
+      setError('質問の保存に失敗しました: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteQuestion = async (questionId) => {
+    if (!confirm('本当にこの質問を削除しますか？')) return;
+
+    try {
+      await questionsAPI.delete(questionId);
+      const updatedQuestions = await questionsAPI.getAll();
+      setQuestions(updatedQuestions);
+    } catch (err) {
+      setError('質問の削除に失敗しました: ' + err.message);
+    }
+  };
+
+  const handleGenerateQuestions = async (category, count = 3) => {
+    setLoading(true);
+    setError('');
+
+    try {
+      const resumeInfo = resumes.length > 0 ? {
+        skills: resumes[0].skills,
+        experience: resumes[0].experience,
+        education: resumes[0].education
+      } : null;
+      
+      const newQuestions = await questionsAPI.generate(category, count, resumeInfo);
+
+      const updatedQuestions = await questionsAPI.getAll();
+      setQuestions(updatedQuestions);
+      alert(`${count}個の新しい質問を生成しました！`);
+    } catch (err) {
+      setError('質問の生成に失敗しました: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setLoading(true);
+    setError('');
+
+    try {
+      // Upload file directly to server for parsing
+      await resumeAPI.uploadFile(file);
+      const updatedResumes = await resumeAPI.getAll();
+      setResumes(updatedResumes);
+      alert('履歴書を正常にアップロードしました！');
+    } catch (err) {
+      setError('ファイルの処理に失敗しました: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const filteredQuestions = categoryFilter === 'all' 
+    ? questions 
+    : questions.filter(q => q.category === categoryFilter);
+
+  const favoriteQuestions = questions.filter(q => 
+    favorites.some(f => f.question_id === q.id)
+  );
+
+  // Login View (shortened for brevity - keeping same structure)
+  if (!currentUser && currentView === 'login') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
+          <div className="text-center mb-8">
+            <h1 className="text-3xl font-bold text-gray-800 mb-2">日本面接練習器</h1>
+            <p className="text-gray-600">Japanese Interview Coach</p>
+          </div>
+
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">メールアドレス</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="email@example.com"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">パスワード</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="••••••••"
+                required
+              />
+            </div>
+
+            {error && (
+              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+                {error}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <LogIn className="w-5 h-5" />}
+              ログイン
+            </button>
+          </form>
+
+          <div className="mt-6 text-center">
+            <button
+              onClick={() => setCurrentView('register')}
+              className="text-blue-600 hover:underline"
+            >
+              アカウントを作成
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Register View (similar structure)
+  if (!currentUser && currentView === 'register') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
+          <div className="text-center mb-8">
+            <h1 className="text-3xl font-bold text-gray-800 mb-2">新規登録</h1>
+            <p className="text-gray-600">Create Account</p>
+          </div>
+
+          <form onSubmit={handleRegister} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">ユーザー名（任意）</label>
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="山田太郎"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">メールアドレス</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="email@example.com"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">パスワード</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="••••••••"
+                required
+                minLength={6}
+              />
+            </div>
+
+            {error && (
+              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+                {error}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <User className="w-5 h-5" />}
+              登録
+            </button>
+          </form>
+
+          <div className="mt-6 text-center">
+            <button
+              onClick={() => setCurrentView('login')}
+              className="text-blue-600 hover:underline"
+            >
+              ログインに戻る
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Main App (Logged in)
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <header className="bg-white shadow-sm border-b">
+        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <h1 className="text-2xl font-bold text-gray-800">日本面接練習器</h1>
+            <span className="text-sm text-gray-500">ようこそ、{currentUser.username}さん</span>
+          </div>
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition"
+          >
+            <LogOut className="w-5 h-5" />
+            ログアウト
+          </button>
+        </div>
+      </header>
+
+      <div className="max-w-7xl mx-auto px-4 py-8">
+        {/* Navigation */}
+        <nav className="bg-white rounded-lg shadow-sm p-4 mb-8">
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => setCurrentView('home')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
+                currentView === 'home' ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200'
+              }`}
+            >
+              <Home className="w-5 h-5" />
+              ホーム
+            </button>
+            <button
+              onClick={() => setCurrentView('random')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
+                currentView === 'random' ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200'
+              }`}
+            >
+              <Shuffle className="w-5 h-5" />
+              ランダム練習
+            </button>
+            <button
+              onClick={() => setCurrentView('questions')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
+                currentView === 'questions' ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200'
+              }`}
+            >
+              <BookOpen className="w-5 h-5" />
+              質問管理
+            </button>
+            <button
+              onClick={() => setCurrentView('favorites')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
+                currentView === 'favorites' ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200'
+              }`}
+            >
+              <Star className="w-5 h-5" />
+              お気に入り ({favorites.length})
+            </button>
+            <button
+              onClick={() => setCurrentView('vocabulary')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
+                currentView === 'vocabulary' ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200'
+              }`}
+            >
+              <Book className="w-5 h-5" />
+              単語帳 ({vocabularyNotes.length})
+            </button>
+            <button
+              onClick={() => setCurrentView('resumes')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
+                currentView === 'resumes' ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200'
+              }`}
+            >
+              <FileText className="w-5 h-5" />
+              履歴書 ({resumes.length})
+            </button>
+          </div>
+        </nav>
+
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6 flex items-center justify-between">
+            <span>{error}</span>
+            <button onClick={() => setError('')}><X className="w-5 h-5" /></button>
+          </div>
+        )}
+
+        {/* Random Practice View */}
+        {currentView === 'random' && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-lg shadow-sm p-6" onMouseUp={handleTextSelection}>
+              <h2 className="text-2xl font-bold mb-4">ランダム面接練習</h2>
+              <p className="text-gray-600 mb-6">
+                カテゴリを選択すると、ランダムに質問が選ばれます。実際の面接のような緊張感を体験できます！
+              </p>
+
+              <div className="grid md:grid-cols-3 gap-4">
+                <button
+                  onClick={() => startRandomPractice('all')}
+                  disabled={loading}
+                  className="border-2 border-purple-200 rounded-lg p-6 hover:border-purple-400 transition disabled:opacity-50"
+                >
+                  <div className="text-center">
+                    <Shuffle className="w-12 h-12 mx-auto mb-3 text-purple-600" />
+                    <h3 className="text-xl font-semibold mb-2">すべての質問</h3>
+                    <p className="text-gray-600 text-sm mb-4">HR と Tech から ランダム</p>
+                    <div className="text-purple-600 font-medium">{questions.length} 問</div>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => startRandomPractice('HR')}
+                  disabled={loading}
+                  className="border-2 border-blue-200 rounded-lg p-6 hover:border-blue-400 transition disabled:opacity-50"
+                >
+                  <div className="text-center">
+                    <User className="w-12 h-12 mx-auto mb-3 text-blue-600" />
+                    <h3 className="text-xl font-semibold mb-2">HR 質問</h3>
+                    <p className="text-gray-600 text-sm mb-4">志望動機、自己PR など</p>
+                    <div className="text-blue-600 font-medium">
+                      {questions.filter(q => q.category === 'HR').length} 問
+                    </div>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => startRandomPractice('Tech')}
+                  disabled={loading}
+                  className="border-2 border-green-200 rounded-lg p-6 hover:border-green-400 transition disabled:opacity-50"
+                >
+                  <div className="text-center">
+                    <BookOpen className="w-12 h-12 mx-auto mb-3 text-green-600" />
+                    <h3 className="text-xl font-semibold mb-2">Tech 質問</h3>
+                    <p className="text-gray-600 text-sm mb-4">技術スタック、経験 など</p>
+                    <div className="text-green-600 font-medium">
+                      {questions.filter(q => q.category === 'Tech').length} 問
+                    </div>
+                  </div>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Home View */}
+        {currentView === 'home' && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-lg shadow-sm p-6" onMouseUp={handleTextSelection}>
+              <h2 className="text-2xl font-bold mb-4">面接練習を始めましょう</h2>
+              <p className="text-gray-600 mb-6">
+                カテゴリを選択して、日本語面接の練習を開始してください。
+                AI が あなたの回答を分析し、フィードバックを提供します。
+              </p>
+
+              <div className="grid md:grid-cols-2 gap-4 mb-6">
+                <div className="border-2 border-blue-200 rounded-lg p-6 hover:border-blue-400 transition cursor-pointer"
+                     onClick={() => { setCategoryFilter('HR'); setCurrentView('questions'); }}>
+                  <h3 className="text-xl font-semibold mb-2">HR / 一般質問</h3>
+                  <p className="text-gray-600 mb-4">志望動機、自己PR、キャリアプランなど</p>
+                  <div className="text-blue-600 font-medium">
+                    {questions.filter(q => q.category === 'HR').length} 問
+                  </div>
+                </div>
+
+                <div className="border-2 border-green-200 rounded-lg p-6 hover:border-green-400 transition cursor-pointer"
+                     onClick={() => { setCategoryFilter('Tech'); setCurrentView('questions'); }}>
+                  <h3 className="text-xl font-semibold mb-2">Tech / 技術質問</h3>
+                  <p className="text-gray-600 mb-4">プロジェクト経験、技術スタック、問題解決など</p>
+                  <div className="text-green-600 font-medium">
+                    {questions.filter(q => q.category === 'Tech').length} 問
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h4 className="font-semibold mb-2">💡 PREP法を意識しましょう</h4>
+                <ul className="text-sm text-gray-700 space-y-1">
+                  <li><strong>Point:</strong> 結論を先に述べる</li>
+                  <li><strong>Reason:</strong> その理由を説明する</li>
+                  <li><strong>Example:</strong> 具体例を示す</li>
+                  <li><strong>Point:</strong> 再度結論を述べる</li>
+                </ul>
+              </div>
+            </div>
+
+            {/* Stats */}
+            <div className="grid md:grid-cols-3 gap-4">
+              <div className="bg-white rounded-lg shadow-sm p-6">
+                <div className="text-3xl font-bold text-blue-600">{questions.length}</div>
+                <div className="text-gray-600">利用可能な質問</div>
+              </div>
+              <div className="bg-white rounded-lg shadow-sm p-6">
+                <div className="text-3xl font-bold text-green-600">{favorites.length}</div>
+                <div className="text-gray-600">お気に入り</div>
+              </div>
+              <div className="bg-white rounded-lg shadow-sm p-6">
+                <div className="text-3xl font-bold text-purple-600">{resumes.length}</div>
+                <div className="text-gray-600">アップロード済み履歴書</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Questions View - continuing with existing structure but using new API */}
+        {currentView === 'questions' && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-lg shadow-sm p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-bold">質問管理</h2>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      setEditingQuestion(null);
+                      setQuestionForm({
+                        category: 'HR',
+                        question_ja: '',
+                        question_zh: '',
+                        model_answer_ja: '',
+                        tips_ja: [],
+                        summary: ''
+                      });
+                      setCurrentView('editQuestion');
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                  >
+                    <PlusCircle className="w-5 h-5" />
+                    手動追加
+                  </button>
+                  <button
+                    onClick={() => handleGenerateQuestions(categoryFilter === 'all' ? 'HR' : categoryFilter, 3)}
+                    disabled={loading}
+                    className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+                  >
+                    {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <RefreshCw className="w-5 h-5" />}
+                    AI生成
+                  </button>
+                </div>
+              </div>
+
+              {/* Category Filter */}
+              <div className="flex gap-2 mb-6">
+                <button
+                  onClick={() => setCategoryFilter('all')}
+                  className={`px-4 py-2 rounded-lg ${categoryFilter === 'all' ? 'bg-gray-800 text-white' : 'bg-gray-100'}`}
+                >
+                  すべて ({questions.length})
+                </button>
+                <button
+                  onClick={() => setCategoryFilter('HR')}
+                  className={`px-4 py-2 rounded-lg ${categoryFilter === 'HR' ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}
+                >
+                  HR ({questions.filter(q => q.category === 'HR').length})
+                </button>
+                <button
+                  onClick={() => setCategoryFilter('Tech')}
+                  className={`px-4 py-2 rounded-lg ${categoryFilter === 'Tech' ? 'bg-green-600 text-white' : 'bg-gray-100'}`}
+                >
+                  Tech ({questions.filter(q => q.category === 'Tech').length})
+                </button>
+              </div>
+
+              {/* Questions List */}
+              <div className="space-y-4">
+                {filteredQuestions.map((question) => (
+                  <div key={question.id} className="border rounded-lg p-4 hover:border-blue-300 transition" onMouseUp={handleTextSelection}>
+                    <div className="flex items-start justify-between mb-2">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className={`px-2 py-1 text-xs rounded ${
+                            question.category === 'HR' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'
+                          }`}>
+                            {question.category}
+                          </span>
+                          {question.is_ai_generated && (
+                            <span className="px-2 py-1 text-xs rounded bg-purple-100 text-purple-700">AI生成</span>
+                          )}
+                        </div>
+                        <h3 className="font-semibold text-lg mb-1">{question.question_ja}</h3>
+                        {question.question_zh && (
+                          <p className="text-gray-600 text-sm">{question.question_zh}</p>
+                        )}
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleToggleFavorite(question.id)}
+                          className={`p-2 rounded-lg ${
+                            favorites.some(f => f.question_id === question.id)
+                              ? 'text-yellow-500 bg-yellow-50'
+                              : 'text-gray-400 hover:bg-gray-100'
+                          }`}
+                        >
+                          <Star className="w-5 h-5" fill={favorites.some(f => f.question_id === question.id) ? 'currentColor' : 'none'} />
+                        </button>
+                        {question.user_id && (
+                          <>
+                            <button
+                              onClick={() => {
+                                setEditingQuestion(question);
+                                setQuestionForm({
+                                  category: question.category,
+                                  question_ja: question.question_ja,
+                                  question_zh: question.question_zh || '',
+                                  model_answer_ja: question.model_answer_ja || '',
+                                  tips_ja: question.tips_ja || [],
+                                  summary: question.summary || ''
+                                });
+                                setCurrentView('editQuestion');
+                              }}
+                              className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg"
+                            >
+                              <Edit className="w-5 h-5" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteQuestion(question.id)}
+                              className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
+                            >
+                              <Trash2 className="w-5 h-5" />
+                            </button>
+                          </>
+                        )}
+                        <button
+                          onClick={() => startPractice(question)}
+                          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+                        >
+                          <Play className="w-4 h-4" />
+                          練習
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                {filteredQuestions.length === 0 && (
+                  <div className="text-center py-12 text-gray-500">
+                    質問がありません。AI生成または手動で追加してください。
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Edit Question View - similar to before */}
+        {currentView === 'editQuestion' && (
+          <div className="bg-white rounded-lg shadow-sm p-6">
+            <h2 className="text-2xl font-bold mb-6">
+              {editingQuestion ? '質問を編集' : '新しい質問を追加'}
+            </h2>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block font-medium mb-2">カテゴリ</label>
+                <select
+                  value={questionForm.category}
+                  onChange={(e) => setQuestionForm({...questionForm, category: e.target.value})}
+                  className="w-full px-4 py-2 border rounded-lg"
+                >
+                  <option value="HR">HR / 一般</option>
+                  <option value="Tech">Tech / 技術</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-medium mb-2">質問（日本語）</label>
+                <textarea
+                  value={questionForm.question_ja}
+                  onChange={(e) => setQuestionForm({...questionForm, question_ja: e.target.value})}
+                  className="w-full px-4 py-2 border rounded-lg"
+                  rows={3}
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block font-medium mb-2">質問（中国語）</label>
+                <textarea
+                  value={questionForm.question_zh}
+                  onChange={(e) => setQuestionForm({...questionForm, question_zh: e.target.value})}
+                  className="w-full px-4 py-2 border rounded-lg"
+                  rows={3}
+                />
+              </div>
+
+              <div>
+                <label className="block font-medium mb-2">模範回答（PREP法）</label>
+                <textarea
+                  value={questionForm.model_answer_ja}
+                  onChange={(e) => setQuestionForm({...questionForm, model_answer_ja: e.target.value})}
+                  className="w-full px-4 py-2 border rounded-lg"
+                  rows={8}
+                  placeholder="【Point】...&#10;【Reason】...&#10;【Example】...&#10;【Point】..."
+                />
+              </div>
+
+              <div>
+                <label className="block font-medium mb-2">回答のコツ（カンマ区切り）</label>
+                <input
+                  type="text"
+                  value={Array.isArray(questionForm.tips_ja) ? questionForm.tips_ja.join(', ') : ''}
+                  onChange={(e) => setQuestionForm({
+                    ...questionForm, 
+                    tips_ja: e.target.value.split(',').map(t => t.trim()).filter(Boolean)
+                  })}
+                  className="w-full px-4 py-2 border rounded-lg"
+                  placeholder="コツ1, コツ2, コツ3"
+                />
+              </div>
+
+              <div>
+                <label className="block font-medium mb-2">要約（英語、AI重複チェック用）</label>
+                <input
+                  type="text"
+                  value={questionForm.summary}
+                  onChange={(e) => setQuestionForm({...questionForm, summary: e.target.value})}
+                  className="w-full px-4 py-2 border rounded-lg"
+                  placeholder="Brief summary in English"
+                />
+              </div>
+
+              <div className="flex gap-4">
+                <button
+                  onClick={handleSaveQuestion}
+                  disabled={loading}
+                  className="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Check className="w-5 h-5" />}
+                  保存
+                </button>
+                <button
+                  onClick={() => setCurrentView('questions')}
+                  className="flex-1 bg-gray-200 py-2 rounded-lg hover:bg-gray-300"
+                >
+                  キャンセル
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Practice View - continuing with existing structure */}
+        {currentView === 'practice' && selectedQuestion && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-lg shadow-sm p-6">
+              <div className="flex items-center justify-between mb-4">
+                <span className={`px-3 py-1 rounded-full text-sm ${
+                  selectedQuestion.category === 'HR' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'
+                }`}>
+                  {selectedQuestion.category}
+                </span>
+                <button
+                  onClick={() => handleToggleFavorite(selectedQuestion.id)}
+                  className={`p-2 rounded-lg ${
+                    favorites.some(f => f.question_id === selectedQuestion.id)
+                      ? 'text-yellow-500 bg-yellow-50'
+                      : 'text-gray-400 hover:bg-gray-100'
+                  }`}
+                >
+                  <Star className="w-6 h-6" fill={favorites.some(f => f.question_id === selectedQuestion.id) ? 'currentColor' : 'none'} />
+                </button>
+              </div>
+
+              <h2 className="text-2xl font-bold mb-2" onMouseUp={handleTextSelection}>
+                {selectedQuestion.question_ja}
+              </h2>
+              {selectedQuestion.question_zh && (
+                <p className="text-gray-600 mb-4" onMouseUp={handleTextSelection}>
+                  {selectedQuestion.question_zh}
+                </p>
+              )}
+
+              {/* Tips */}
+              {selectedQuestion.tips_ja && selectedQuestion.tips_ja.length > 0 && (
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6" onMouseUp={handleTextSelection}>
+                  <h3 className="font-semibold mb-2">💡 回答のコツ</h3>
+                  <ul className="list-disc list-inside space-y-1 text-sm">
+                    {selectedQuestion.tips_ja.map((tip, idx) => (
+                      <li key={idx}>{tip}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Answer Input */}
+              <div className="mb-4">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="font-medium">あなたの回答</label>
+                  <div className="flex gap-2">
+                    {!isRecording ? (
+                      <button
+                        onClick={handleStartRecording}
+                        className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+                      >
+                        <Mic className="w-5 h-5" />
+                        音声で回答
+                      </button>
+                    ) : (
+                      <button
+                        onClick={handleStopRecording}
+                        className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 animate-pulse"
+                      >
+                        <Mic className="w-5 h-5" />
+                        録音中...
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <textarea
+                  value={userAnswer}
+                  onChange={(e) => setUserAnswer(e.target.value)}
+                  className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                  rows={8}
+                  placeholder="ここに回答を入力してください。音声で回答することもできます。"
+                />
+              </div>
+
+              <button
+                onClick={handleSubmitAnswer}
+                disabled={loading || !userAnswer.trim()}
+                className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    AIが分析中...
+                  </>
+                ) : (
+                  <>
+                    <MessageSquare className="w-5 h-5" />
+                    AIフィードバックを取得
+                  </>
+                )}
+              </button>
+
+              {/* Skip to Next Question Button */}
+              <button
+                onClick={handleSkipToNext}
+                disabled={loading}
+                className="w-full mt-3 bg-gray-100 text-gray-700 py-3 rounded-lg hover:bg-gray-200 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                <ChevronRight className="w-5 h-5" />
+                次へスキップ
+              </button>
+            </div>
+
+            {/* AI Feedback */}
+            {aiFeedback && (
+              <div className="bg-white rounded-lg shadow-sm p-6" onMouseUp={handleTextSelection}>
+                <h3 className="text-xl font-bold mb-4">AIフィードバック</h3>
+                
+                <div className="mb-6">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-semibold">スコア</span>
+                    <span className="text-3xl font-bold text-blue-600">{aiFeedback.score}/100</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-3">
+                    <div
+                      className={`h-3 rounded-full ${
+                        aiFeedback.score >= 80 ? 'bg-green-500' :
+                        aiFeedback.score >= 60 ? 'bg-yellow-500' : 'bg-red-500'
+                      }`}
+                      style={{width: `${aiFeedback.score}%`}}
+                    />
+                  </div>
+                </div>
+
+                <div className="mb-6">
+                  <h4 className="font-semibold mb-2">総評</h4>
+                  <p className="text-gray-700">{aiFeedback.feedback}</p>
+                </div>
+
+                <div className="mb-6">
+                  <h4 className="font-semibold mb-2">改善アドバイス</h4>
+                  <ul className="space-y-2">
+                    {aiFeedback.advice?.map((item, idx) => (
+                      <li key={idx} className="flex gap-2">
+                        <ChevronRight className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div>
+                  <h4 className="font-semibold mb-2">修正版（商務日本語）</h4>
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-4 whitespace-pre-wrap markdown-content">
+                    <ReactMarkdown>{aiFeedback.correctedVersion}</ReactMarkdown>
+                  </div>
+                </div>
+
+                {/* Conversation Mode Toggle */}
+                {!conversationMode && (
+                  <div className="mt-6 pt-6 border-t">
+                    <button
+                      onClick={handleEnableConversationMode}
+                      className="w-full py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center justify-center gap-2"
+                    >
+                      <MessageSquare className="w-5 h-5" />
+                      対話モードを開始（AIが追問します）
+                    </button>
+                    <p className="text-sm text-gray-500 mt-2 text-center">
+                      より深掘りした質問で面接の練習を続けます
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Conversation Mode */}
+            {conversationMode && activeConversation && (
+              <div className="bg-white rounded-lg shadow-sm p-6">
+                <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
+                  <MessageSquare className="w-6 h-6 text-purple-600" />
+                  対話モード
+                </h3>
+
+                {/* Conversation History */}
+                <div className="space-y-4 mb-6">
+                  {activeConversation.conversation_turns?.map((turn, idx) => (
+                    <div key={idx} className={`p-4 rounded-lg ${turn.type === 'initial' ? 'bg-blue-50' : 'bg-purple-50'}`} onMouseUp={handleTextSelection}>
+                      {turn.type === 'followup' && (
+                        <>
+                          <div className="mb-3">
+                            <h4 className="font-semibold text-purple-700 mb-1">追問 #{idx}</h4>
+                            <p className="text-gray-800">{turn.followUpQuestion}</p>
+                            {turn.reasoning && (
+                              <p className="text-xs text-gray-500 mt-1">💡 {turn.reasoning}</p>
+                            )}
+                          </div>
+                          {turn.userAnswer && (
+                            <>
+                              <div className="mb-2">
+                                <h5 className="font-medium text-sm text-gray-700">あなたの回答:</h5>
+                                <p className="text-gray-600 bg-white p-2 rounded">{turn.userAnswer}</p>
+                              </div>
+                              {turn.aiFeedback && (
+                                <div className="bg-white p-3 rounded">
+                                  <div className="flex items-center gap-2 mb-2">
+                                    <span className="font-semibold text-sm">スコア:</span>
+                                    <span className="text-lg font-bold text-purple-600">{turn.aiFeedback.score}/100</span>
+                                  </div>
+                                  <p className="text-sm text-gray-700">{turn.aiFeedback.feedback}</p>
+                                  {turn.aiFeedback.improvements && turn.aiFeedback.improvements.length > 0 && (
+                                    <div className="mt-2">
+                                      <p className="text-xs font-semibold text-gray-600">改善点:</p>
+                                      <ul className="text-xs space-y-1 mt-1">
+                                        {turn.aiFeedback.improvements.map((imp, i) => (
+                                          <li key={i} className="text-gray-600">• {imp}</li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                  )}
+                                  {turn.aiFeedback.correctedVersion && (
+                                    <div className="mt-3 pt-3 border-t border-gray-200">
+                                      <p className="text-xs font-semibold text-green-600 mb-1">✨ 改善された回答:</p>
+                                      <p className="text-sm text-gray-700 bg-green-50 p-2 rounded">{turn.aiFeedback.correctedVersion}</p>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Current Follow-up Question */}
+                {pendingFollowUp && !pendingFollowUp.evaluation && (
+                  <div className="bg-purple-50 border-2 border-purple-300 rounded-lg p-4 mb-4" onMouseUp={handleTextSelection}>
+                    <h4 className="font-semibold text-purple-700 mb-2">新しい追問:</h4>
+                    <p className="text-gray-800 mb-4">{pendingFollowUp.followUpQuestion}</p>
+                    
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="font-medium text-sm text-gray-700">あなたの回答</label>
+                      <div className="flex gap-2">
+                        {!isRecording ? (
+                          <button
+                            onClick={handleStartRecording}
+                            className="flex items-center gap-2 px-3 py-1.5 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700"
+                          >
+                            <Mic className="w-4 h-4" />
+                            音声で回答
+                          </button>
+                        ) : (
+                          <button
+                            onClick={handleStopRecording}
+                            className="flex items-center gap-2 px-3 py-1.5 bg-gray-600 text-white text-sm rounded-lg hover:bg-gray-700 animate-pulse"
+                          >
+                            <Mic className="w-4 h-4" />
+                            録音中...
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <textarea
+                      value={followUpAnswer}
+                      onChange={(e) => setFollowUpAnswer(e.target.value)}
+                      className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-purple-500 mb-3"
+                      rows={6}
+                      placeholder="追問に回答してください..."
+                    />
+                    
+                    <button
+                      onClick={handleSubmitFollowUpAnswer}
+                      disabled={loading || !followUpAnswer.trim()}
+                      className="w-full bg-purple-600 text-white py-3 rounded-lg hover:bg-purple-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                      {loading ? (
+                        <>
+                          <Loader2 className="w-5 h-5 animate-spin" />
+                          評価中...
+                        </>
+                      ) : (
+                        <>
+                          <Send className="w-5 h-5" />
+                          回答を提出
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
+
+                {/* Action Buttons */}
+                <div className="flex gap-3">
+                  {(!pendingFollowUp || pendingFollowUp.evaluation) && (
+                    <button
+                      onClick={handleRequestFollowUp}
+                      disabled={loading}
+                      className="flex-1 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                      <MessageSquare className="w-5 h-5" />
+                      さらに追問を受ける
+                    </button>
+                  )}
+                  <button
+                    onClick={handleCompleteConversation}
+                    disabled={loading}
+                    className="flex-1 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    <Check className="w-5 h-5" />
+                    対話を完了して保存
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Model Answer */}
+            {selectedQuestion.model_answer_ja && (
+              <div className="bg-white rounded-lg shadow-sm p-6">
+                <button
+                  onClick={() => setShowModelAnswer(!showModelAnswer)}
+                  className="flex items-center justify-between w-full mb-4"
+                >
+                  <h3 className="text-xl font-bold">模範回答を見る</h3>
+                  <ChevronRight className={`w-6 h-6 transition-transform ${showModelAnswer ? 'rotate-90' : ''}`} />
+                </button>
+                
+                {showModelAnswer && (
+                  <div className="bg-gray-50 border rounded-lg p-4 whitespace-pre-wrap" onMouseUp={handleTextSelection}>
+                    {selectedQuestion.model_answer_ja}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <button
+              onClick={() => setCurrentView('questions')}
+              className="w-full bg-gray-200 py-3 rounded-lg hover:bg-gray-300"
+            >
+              質問一覧に戻る
+            </button>
+          </div>
+        )}
+
+        {/* Favorites View */}
+        {currentView === 'favorites' && (
+          <div className="bg-white rounded-lg shadow-sm p-6">
+            <h2 className="text-2xl font-bold mb-6">お気に入りの質問</h2>
+
+            {favorites.length === 0 ? (
+              <div className="text-center py-12 text-gray-500">
+                お気に入りがありません。質問を★マークでお気に入りに追加してください。
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {favorites.map((fav) => {
+                  let aiFeedbackData = null;
+                  if (fav.ai_feedback) {
+                    try {
+                      aiFeedbackData = JSON.parse(fav.ai_feedback);
+                    } catch (e) {
+                      console.error('Failed to parse ai_feedback:', e);
+                    }
+                  }
+                  
+                  // Construct question object from favorite data
+                  const questionObj = {
+                    id: fav.question_id,
+                    category: fav.category,
+                    question_ja: fav.question_ja,
+                    question_zh: fav.question_zh,
+                    model_answer_ja: fav.model_answer_ja,
+                    tips_ja: fav.tips_ja,
+                    summary: fav.summary,
+                    user_id: fav.user_id,
+                    is_ai_generated: fav.is_ai_generated
+                  };
+                  
+                  return (
+                    <div key={fav.id} className="border rounded-lg p-4 bg-gray-50" onMouseUp={handleTextSelection}>
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className={`px-2 py-1 text-xs rounded ${
+                              fav.category === 'HR' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'
+                            }`}>
+                              {fav.category}
+                            </span>
+                          </div>
+                          <h3 className="font-semibold text-lg mb-1">{fav.question_ja}</h3>
+                          {fav.question_zh && (
+                            <p className="text-gray-600 text-sm mb-2">{fav.question_zh}</p>
+                          )}
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleToggleFavorite(fav.question_id)}
+                            className="p-2 text-yellow-500 bg-yellow-50 rounded-lg"
+                          >
+                            <Star className="w-5 h-5" fill="currentColor" />
+                          </button>
+                          <button
+                            onClick={() => startPractice(questionObj)}
+                            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+                          >
+                            <Play className="w-4 h-4" />
+                            練習
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* 保存された用户回答 */}
+                      {fav.user_answer && (
+                        <div className="mt-4 border-t pt-4">
+                          <h4 className="font-semibold text-sm text-gray-700 mb-2">📝 あなたの回答</h4>
+                          <div className="bg-white p-3 rounded border text-sm">
+                            {fav.user_answer}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* AIフィードバック */}
+                      {aiFeedbackData && (
+                        <div className="mt-4 border-t pt-4">
+                          <h4 className="font-semibold text-sm text-gray-700 mb-2">🤖 AIフィードバック</h4>
+                          <div className="bg-blue-50 p-3 rounded space-y-2">
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold">スコア:</span>
+                              <span className="text-2xl font-bold text-blue-600">{aiFeedbackData.score}/100</span>
+                            </div>
+                            {aiFeedbackData.feedback && (
+                              <div className="text-sm">
+                                <span className="font-semibold">評価:</span>
+                                <p className="mt-1">{aiFeedbackData.feedback}</p>
+                              </div>
+                            )}
+                            {aiFeedbackData.advice && aiFeedbackData.advice.length > 0 && (
+                              <div className="text-sm">
+                                <span className="font-semibold">アドバイス:</span>
+                                <ul className="list-disc list-inside mt-1 space-y-1">
+                                  {aiFeedbackData.advice.map((tip, idx) => (
+                                    <li key={idx}>{tip}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* AI修正版 */}
+                      {fav.ai_corrected_version && (
+                        <div className="mt-4 border-t pt-4">
+                          <h4 className="font-semibold text-sm text-gray-700 mb-2">✨ 改善された回答</h4>
+                          <div className="bg-green-50 p-3 rounded text-sm whitespace-pre-line">
+                            {fav.ai_corrected_version}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 対話履歴 */}
+                      {fav.conversation_history && (() => {
+                        try {
+                          const conversationTurns = JSON.parse(fav.conversation_history);
+                          if (conversationTurns && conversationTurns.length > 0) {
+                            return (
+                              <div className="mt-4 border-t pt-4">
+                                <h4 className="font-semibold text-sm text-gray-700 mb-3">💬 対話履歴 ({conversationTurns.length}回のやり取り)</h4>
+                                <div className="space-y-3">
+                                  {conversationTurns.map((turn, index) => (
+                                    <div 
+                                      key={index}
+                                      className={`p-3 rounded-lg ${
+                                        turn.type === 'initial' 
+                                          ? 'bg-blue-50 border border-blue-200' 
+                                          : 'bg-purple-50 border border-purple-200'
+                                      }`}
+                                      onMouseUp={handleTextSelection}
+                                    >
+                                      {/* 追問質問 */}
+                                      {turn.followUpQuestion && (
+                                        <div className="mb-2">
+                                          <p className="text-xs font-semibold text-purple-700 mb-1">
+                                            {turn.type === 'initial' ? '初回質問' : `追問 ${index}`}
+                                          </p>
+                                          <p className="text-sm font-medium text-gray-800">
+                                            {turn.followUpQuestion}
+                                          </p>
+                                        </div>
+                                      )}
+
+                                      {/* ユーザーの回答 */}
+                                      {turn.userAnswer && (
+                                        <div className="mb-2">
+                                          <p className="text-xs font-semibold text-gray-600 mb-1">あなたの回答:</p>
+                                          <p className="text-sm text-gray-700 whitespace-pre-line bg-white p-2 rounded">
+                                            {turn.userAnswer}
+                                          </p>
+                                        </div>
+                                      )}
+
+                                      {/* AIフィードバック */}
+                                      {turn.aiFeedback && (
+                                        <div>
+                                          <p className="text-xs font-semibold text-gray-600 mb-1">AI評価:</p>
+                                          <div className="bg-white p-2 rounded">
+                                            {turn.aiFeedback.score !== undefined && (
+                                              <p className="text-sm mb-1">
+                                                <span className="font-semibold">スコア:</span>{' '}
+                                                <span className={`${
+                                                  turn.aiFeedback.score >= 80 ? 'text-green-600' :
+                                                  turn.aiFeedback.score >= 60 ? 'text-yellow-600' :
+                                                  'text-red-600'
+                                                }`}>
+                                                  {turn.aiFeedback.score}/100
+                                                </span>
+                                              </p>
+                                            )}
+                                            {turn.aiFeedback.feedback && (
+                                              <p className="text-sm text-gray-700 mb-1">{turn.aiFeedback.feedback}</p>
+                                            )}
+                                            {turn.aiFeedback.strengths && turn.aiFeedback.strengths.length > 0 && (
+                                              <div className="mt-1">
+                                                <p className="text-xs font-semibold text-green-600">良い点:</p>
+                                                <ul className="text-xs text-gray-600 list-disc list-inside">
+                                                  {turn.aiFeedback.strengths.map((s, i) => (
+                                                    <li key={i}>{s}</li>
+                                                  ))}
+                                                </ul>
+                                              </div>
+                                            )}
+                                            {turn.aiFeedback.improvements && turn.aiFeedback.improvements.length > 0 && (
+                                              <div className="mt-1">
+                                                <p className="text-xs font-semibold text-orange-600">改善点:</p>
+                                                <ul className="text-xs text-gray-600 list-disc list-inside">
+                                                  {turn.aiFeedback.improvements.map((s, i) => (
+                                                    <li key={i}>{s}</li>
+                                                  ))}
+                                                </ul>
+                                              </div>
+                                            )}
+                                            {turn.aiFeedback.correctedVersion && (
+                                              <div className="mt-2 pt-2 border-t border-gray-200">
+                                                <p className="text-xs font-semibold text-green-600 mb-1">✨ 改善された回答:</p>
+                                                <p className="text-xs text-gray-700 bg-green-50 p-2 rounded whitespace-pre-line">
+                                                  {turn.aiFeedback.correctedVersion}
+                                                </p>
+                                              </div>
+                                            )}
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      <p className="text-xs text-gray-400 mt-2">
+                                        {new Date(turn.timestamp).toLocaleString('ja-JP')}
+                                      </p>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          }
+                        } catch (e) {
+                          console.error('Failed to parse conversation history:', e);
+                        }
+                        return null;
+                      })()}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Resumes View */}
+        {currentView === 'resumes' && (
+          <div className="bg-white rounded-lg shadow-sm p-6">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold">履歴書管理</h2>
+              <label className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer">
+                <Upload className="w-5 h-5" />
+                履歴書をアップロード
+                <input
+                  type="file"
+                  onChange={handleFileUpload}
+                  accept=".txt,.pdf,.doc,.docx"
+                  className="hidden"
+                />
+              </label>
+            </div>
+
+            <div className="mb-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <p className="text-sm text-gray-700">
+                <strong>プライバシー保護:</strong> ファイルは AI によって解析され、重要な情報のみが保存されます。
+                元のファイルは保存されません。対応形式: PDF, Word (.doc, .docx), テキスト (.txt)
+              </p>
+            </div>
+
+            {resumes.length === 0 ? (
+              <div className="text-center py-12 text-gray-500">
+                履歴書がアップロードされていません。
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {resumes.map((resume) => (
+                  <div key={resume.id} className="border rounded-lg p-4" onMouseUp={handleTextSelection}>
+                    <div className="flex items-start justify-between mb-4">
+                      <div>
+                        <h3 className="font-semibold text-lg">{resume.filename}</h3>
+                        <p className="text-sm text-gray-500">
+                          {new Date(resume.created_at).toLocaleDateString('ja-JP')}
+                        </p>
+                      </div>
+                      <button
+                        onClick={async () => {
+                          await resumeAPI.delete(resume.id);
+                          const updatedResumes = await resumeAPI.getAll();
+                          setResumes(updatedResumes);
+                        }}
+                        className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
+                      >
+                        <Trash2 className="w-5 h-5" />
+                      </button>
+                    </div>
+
+                    <div className="space-y-3">
+                      {resume.skills && resume.skills.length > 0 && (
+                        <div>
+                          <h4 className="font-medium mb-1">スキル:</h4>
+                          <div className="flex flex-wrap gap-2">
+                            {resume.skills.map((skill, idx) => (
+                              <span key={idx} className="px-2 py-1 bg-blue-100 text-blue-700 text-sm rounded">
+                                {skill}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {resume.experience && (
+                        <div>
+                          <h4 className="font-medium mb-1">経験:</h4>
+                          <p className="text-sm text-gray-700">{resume.experience}</p>
+                        </div>
+                      )}
+
+                      {resume.education && (
+                        <div>
+                          <h4 className="font-medium mb-1">学歴:</h4>
+                          <p className="text-sm text-gray-700">{resume.education}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Vocabulary View */}
+        {currentView === 'vocabulary' && (
+          <div className="bg-white rounded-lg shadow-sm p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-2xl font-bold">単語帳</h2>
+              {vocabularyNotes.length > 0 && !reviewMode && (
+                <button
+                  onClick={startReviewMode}
+                  className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                >
+                  <RotateCcw className="w-5 h-5" />
+                  復習モード
+                </button>
+              )}
+            </div>
+            
+            {/* Notion Status Banner */}
+            {notionEnabled && (
+              <div className="mb-4 p-3 bg-purple-50 border border-purple-200 rounded-lg flex items-center gap-2">
+                <Book className="w-5 h-5 text-purple-600" />
+                <span className="text-sm text-purple-700">
+                  <strong>Notion同期:</strong> 有効 - 保存した単語は自動的にNotionデータベースに同期されます
+                </span>
+              </div>
+            )}
+            
+            {!reviewMode ? (
+              <>
+                <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <p className="text-sm text-gray-700">
+                    💡 <strong>使い方:</strong> 質問や説明文で分からない単語を選択すると浮かび上がる放大鏡アイコンをクリックすると、AIが翻訳・解説・例文を提供します。
+                  </p>
+                </div>
+
+                {vocabularyNotes.length === 0 ? (
+                  <div className="text-center py-12 text-gray-500">
+                    まだ保存した単語がありません。質問ページで単語を選択して分析・保存してください。
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {vocabularyNotes.map((note) => (
+                      <div key={note.id} className="border rounded-lg p-4 bg-gray-50" onMouseUp={handleTextSelection}>
+                        <div className="flex items-start justify-between mb-3">
+                          <div>
+                        <h3 className="text-xl font-bold text-blue-700 mb-1">{note.word}</h3>
+                        <p className="text-gray-600">{note.translation}</p>
+                      </div>
+                      <button
+                        onClick={() => handleDeleteVocabulary(note.id)}
+                        className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
+                      >
+                        <Trash2 className="w-5 h-5" />
+                      </button>
+                    </div>
+
+                    {note.explanation && (
+                      <div className="mb-3">
+                        <h4 className="font-semibold text-sm mb-1">解説:</h4>
+                        <p className="text-sm text-gray-700">{note.explanation}</p>
+                      </div>
+                    )}
+
+                    {note.example_sentences && note.example_sentences.length > 0 && (
+                      <div className="mb-3">
+                        <h4 className="font-semibold text-sm mb-2">例文:</h4>
+                        <div className="space-y-2">
+                          {note.example_sentences.map((example, idx) => (
+                            <div key={idx} className="bg-white p-2 rounded text-sm">
+                              <p className="text-gray-800 mb-1">{example.japanese}</p>
+                              <p className="text-gray-600">{example.chinese}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {note.tags && note.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {note.tags.map((tag, idx) => (
+                          <span key={idx} className="px-2 py-1 bg-purple-100 text-purple-700 text-xs rounded">
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="mt-2 text-xs text-gray-400">
+                      {new Date(note.created_at).toLocaleString('ja-JP')}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="space-y-6">
+            {/* Review Mode */}
+            <div className="flex items-center justify-between">
+              <div className="text-lg font-semibold text-gray-700">
+                カード {currentReviewIndex + 1} / {vocabularyNotes.length}
+              </div>
+              <button
+                onClick={exitReviewMode}
+                className="flex items-center gap-2 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+              >
+                <X className="w-4 h-4" />
+                終了
+              </button>
+            </div>
+
+            {vocabularyNotes.length > 0 && (
+              <div className="bg-gradient-to-br from-blue-50 to-purple-50 rounded-xl shadow-lg p-8 min-h-[400px] flex flex-col justify-between">
+                {/* Front of card - always show the word */}
+                <div className="flex-1 flex flex-col items-center justify-center">
+                  <h2 className="text-4xl font-bold text-blue-700 mb-8">
+                    {vocabularyNotes[currentReviewIndex].word}
+                  </h2>
+                  
+                  {/* Show/Hide Answer */}
+                  {!showAnswer ? (
+                    <button
+                      onClick={() => setShowAnswer(true)}
+                      className="flex items-center gap-2 px-6 py-3 bg-white text-blue-600 rounded-lg hover:bg-blue-50 shadow-md"
+                    >
+                      <Eye className="w-5 h-5" />
+                      答えを見る
+                    </button>
+                  ) : (
+                    <div className="w-full space-y-4">
+                      <div className="bg-white rounded-lg p-4 shadow">
+                        <h3 className="text-sm font-semibold text-gray-600 mb-2">翻訳:</h3>
+                        <p className="text-xl text-gray-800">{vocabularyNotes[currentReviewIndex].translation}</p>
+                      </div>
+
+                      {vocabularyNotes[currentReviewIndex].explanation && (
+                        <div className="bg-white rounded-lg p-4 shadow">
+                          <h3 className="text-sm font-semibold text-gray-600 mb-2">解説:</h3>
+                          <p className="text-gray-700">{vocabularyNotes[currentReviewIndex].explanation}</p>
+                        </div>
+                      )}
+
+                      {vocabularyNotes[currentReviewIndex].example_sentences && 
+                       vocabularyNotes[currentReviewIndex].example_sentences.length > 0 && (
+                        <div className="bg-white rounded-lg p-4 shadow">
+                          <h3 className="text-sm font-semibold text-gray-600 mb-2">例文:</h3>
+                          <div className="space-y-2">
+                            {vocabularyNotes[currentReviewIndex].example_sentences.map((example, idx) => (
+                              <div key={idx} className="border-l-2 border-blue-300 pl-3">
+                                <p className="text-gray-800 mb-1">{example.japanese}</p>
+                                <p className="text-gray-600 text-sm">{example.chinese}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <button
+                        onClick={() => setShowAnswer(false)}
+                        className="flex items-center gap-2 px-4 py-2 bg-white text-gray-600 rounded-lg hover:bg-gray-50 shadow text-sm mx-auto"
+                      >
+                        <EyeOff className="w-4 h-4" />
+                        隠す
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Navigation */}
+                <div className="flex justify-between items-center mt-8 pt-6 border-t border-gray-200">
+                  <button
+                    onClick={prevReviewCard}
+                    className="px-6 py-3 bg-white text-gray-700 rounded-lg hover:bg-gray-50 shadow font-medium"
+                  >
+                    ← 前へ
+                  </button>
+                  <div className="text-gray-600">
+                    {vocabularyNotes[currentReviewIndex].tags && vocabularyNotes[currentReviewIndex].tags.length > 0 && (
+                      <div className="flex gap-2">
+                        {vocabularyNotes[currentReviewIndex].tags.map((tag, idx) => (
+                          <span key={idx} className="px-2 py-1 bg-purple-100 text-purple-700 text-xs rounded">
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    onClick={nextReviewCard}
+                    className="px-6 py-3 bg-white text-gray-700 rounded-lg hover:bg-gray-50 shadow font-medium"
+                  >
+                    次へ →
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+          </div>
+        )}
+      </div>
+
+      {/* Vocabulary Analysis Popup */}
+      {showVocabularyPopup && vocabularyAnalysis && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50" 
+          onClick={() => setShowVocabularyPopup(false)}
+        >
+          <div 
+            className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto relative" 
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Close hint banner */}
+            <div className="bg-gray-100 px-6 py-2 text-xs text-gray-600 text-center border-b">
+              💡 点击灰色背景关闭 | Click background to close
+            </div>
+            
+            <div className="p-6" onMouseUp={handleTextSelection}>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-2xl font-bold">単語分析</h3>
+                <button 
+                  onClick={() => setShowVocabularyPopup(false)} 
+                  className="p-2 hover:bg-red-50 text-red-600 rounded-lg transition-colors"
+                  title="关闭"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <h4 className="text-xl font-bold text-blue-700 mb-2">{selectedText}</h4>
+                  <p className="text-lg text-gray-700">{vocabularyAnalysis.translation}</p>
+                </div>
+
+                {vocabularyAnalysis.explanation && (
+                  <div>
+                    <h4 className="font-semibold mb-1">详细解释:</h4>
+                    <p className="text-gray-700">{vocabularyAnalysis.explanation}</p>
+                  </div>
+                )}
+
+                {vocabularyAnalysis.exampleSentences && vocabularyAnalysis.exampleSentences.length > 0 && (
+                  <div>
+                    <h4 className="font-semibold mb-2">例句:</h4>
+                    <div className="space-y-3">
+                      {vocabularyAnalysis.exampleSentences.map((example, idx) => (
+                        <div key={idx} className="bg-gray-50 p-3 rounded-lg">
+                          <p className="text-gray-800 mb-1 font-medium">{example.japanese}</p>
+                          <p className="text-gray-600">{example.chinese}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {vocabularyAnalysis.tags && vocabularyAnalysis.tags.length > 0 && (
+                  <div>
+                    <h4 className="font-semibold mb-2">标签:</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {vocabularyAnalysis.tags.map((tag, idx) => (
+                        <span key={idx} className="px-3 py-1 bg-purple-100 text-purple-700 text-sm rounded-full">
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-3 mt-6">
+                <button
+                  onClick={handleSaveVocabulary}
+                  disabled={loading}
+                  className="flex-1 bg-green-600 text-white py-3 rounded-lg hover:bg-green-700 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      保存中...
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-5 h-5" />
+                      {notionEnabled ? '保存到单词本 & Notion' : '保存到单词本'}
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={() => setShowVocabularyPopup(false)}
+                  disabled={loading}
+                  className="px-6 bg-gray-200 text-gray-700 py-3 rounded-lg hover:bg-gray-300 disabled:opacity-50 transition-all"
+                >
+                  关闭
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Search Icon for Word Selection */}
+      {floatingSearchPos && selectedText && (
+        <div
+          style={{
+            position: 'absolute',
+            left: `${floatingSearchPos.x}px`,
+            top: `${floatingSearchPos.y}px`,
+            zIndex: 1000
+          }}
+          className="animate-fade-in"
+        >
+          <button
+            onClick={handleAnalyzeVocabulary}
+            disabled={loading}
+            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 shadow-lg disabled:opacity-50 transition-all hover:scale-105"
+            title={`分析「${selectedText}」`}
+          >
+            <Search className="w-4 h-4" />
+            <span className="text-sm font-medium">{loading ? '分析中...' : 'AI分析'}</span>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default App;
