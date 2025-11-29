@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { 
   User, LogIn, LogOut, BookOpen, Mic, FileText, Star, 
   PlusCircle, Edit, Trash2, Play, ChevronRight, Home,
-  Upload, RefreshCw, Check, X, Loader2, MessageSquare, Shuffle, Send, Book, Search, RotateCcw, Eye, EyeOff
+  Upload, RefreshCw, Check, X, Loader2, MessageSquare, Shuffle, Send, Book, Search, RotateCcw, Eye, EyeOff,
+  FileUp, Sparkles
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { auth, questionsAPI, practiceAPI, favoritesAPI, resumeAPI, conversationAPI, vocabularyAPI } from './utils/api';
@@ -60,6 +61,16 @@ function App() {
     tips_ja: [],
     summary: ''
   });
+
+  // Document import state
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importFile, setImportFile] = useState(null);
+
+  // Question analysis state
+  const [showAnalysisModal, setShowAnalysisModal] = useState(false);
+  const [analyzingQuestion, setAnalyzingQuestion] = useState(null);
+  const [analysisPrompt, setAnalysisPrompt] = useState('');
+  const [generateAnswer, setGenerateAnswer] = useState(true);
 
   // Resume state
   const [resumes, setResumes] = useState([]);
@@ -647,6 +658,52 @@ function App() {
     }
   };
 
+  const handleImportQuestions = async () => {
+    if (!importFile) return;
+
+    setLoading(true);
+    setError('');
+
+    try {
+      const result = await questionsAPI.importFromDocument(importFile);
+      const updatedQuestions = await questionsAPI.getAll();
+      setQuestions(updatedQuestions);
+      setShowImportModal(false);
+      setImportFile(null);
+      alert(result.message);
+    } catch (err) {
+      setError('文書のインポートに失敗しました: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAnalyzeQuestion = async () => {
+    if (!analyzingQuestion) return;
+
+    setLoading(true);
+    setError('');
+
+    try {
+      const updatedQuestion = await questionsAPI.analyzeQuestion(
+        analyzingQuestion.id,
+        analysisPrompt,
+        generateAnswer
+      );
+      
+      const updatedQuestions = await questionsAPI.getAll();
+      setQuestions(updatedQuestions);
+      setShowAnalysisModal(false);
+      setAnalyzingQuestion(null);
+      setAnalysisPrompt('');
+      alert('質問の解析が完了しました！');
+    } catch (err) {
+      setError('質問の解析に失敗しました: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -1057,6 +1114,13 @@ function App() {
                     手動追加
                   </button>
                   <button
+                    onClick={() => setShowImportModal(true)}
+                    className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+                  >
+                    <FileUp className="w-5 h-5" />
+                    文書導入
+                  </button>
+                  <button
                     onClick={() => handleGenerateQuestions(categoryFilter === 'all' ? 'HR' : categoryFilter, 3)}
                     disabled={loading}
                     className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
@@ -1139,6 +1203,18 @@ function App() {
                               className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg"
                             >
                               <Edit className="w-5 h-5" />
+                            </button>
+                            <button
+                              onClick={() => {
+                                setAnalyzingQuestion(question);
+                                setAnalysisPrompt('');
+                                setGenerateAnswer(!question.model_answer_ja);
+                                setShowAnalysisModal(true);
+                              }}
+                              className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg"
+                              title="AI解析"
+                            >
+                              <Sparkles className="w-5 h-5" />
                             </button>
                             <button
                               onClick={() => handleDeleteQuestion(question.id)}
@@ -2243,8 +2319,147 @@ function App() {
           </button>
         </div>
       )}
+
+      {/* Document Import Modal */}
+      {showImportModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-lg w-full p-6">
+            <h3 className="text-xl font-bold mb-4">文書から質問をインポート</h3>
+            <p className="text-gray-600 mb-4">
+              PDF、Word、テキスト、Markdown形式の文書から質問を抽出します。
+              <br/>中国語の質問は自動的に日本語に翻訳されます。
+            </p>
+            
+            {error && (
+              <div className="mb-4 p-3 bg-red-50 text-red-600 rounded-lg">
+                {error}
+              </div>
+            )}
+
+            <div className="mb-6">
+              <label className="block font-medium mb-2">文書ファイル</label>
+              <input
+                type="file"
+                accept=".pdf,.docx,.doc,.txt,.md"
+                onChange={(e) => setImportFile(e.target.files[0])}
+                className="w-full px-4 py-2 border rounded-lg"
+              />
+              {importFile && (
+                <p className="mt-2 text-sm text-gray-600">
+                  選択されたファイル: {importFile.name}
+                </p>
+              )}
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={handleImportQuestions}
+                disabled={!importFile || loading}
+                className="flex-1 bg-purple-600 text-white py-3 rounded-lg hover:bg-purple-700 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <FileUp className="w-5 h-5" />}
+                インポート
+              </button>
+              <button
+                onClick={() => {
+                  setShowImportModal(false);
+                  setImportFile(null);
+                  setError('');
+                }}
+                disabled={loading}
+                className="flex-1 bg-gray-200 py-3 rounded-lg hover:bg-gray-300 disabled:opacity-50"
+              >
+                キャンセル
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Question Analysis Modal */}
+      {showAnalysisModal && analyzingQuestion && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto">
+            <h3 className="text-xl font-bold mb-4">AI質問解析</h3>
+            
+            <div className="mb-4 p-4 bg-gray-50 rounded-lg">
+              <div className="font-medium text-gray-700 mb-1">質問:</div>
+              <div className="text-lg">{analyzingQuestion.question_ja}</div>
+            </div>
+
+            {error && (
+              <div className="mb-4 p-3 bg-red-50 text-red-600 rounded-lg">
+                {error}
+              </div>
+            )}
+
+            <div className="mb-4">
+              <label className="flex items-center gap-2 mb-3">
+                <input
+                  type="checkbox"
+                  checked={generateAnswer}
+                  onChange={(e) => setGenerateAnswer(e.target.checked)}
+                  className="w-4 h-4"
+                />
+                <span className="font-medium">標準回答を生成する</span>
+              </label>
+              <p className="text-sm text-gray-600 ml-6">
+                チェックを外すと、ヒントと解説のみ生成します
+              </p>
+            </div>
+
+            <div className="mb-6">
+              <label className="block font-medium mb-2">追加のプロンプト（オプション）</label>
+              <textarea
+                value={analysisPrompt}
+                onChange={(e) => setAnalysisPrompt(e.target.value)}
+                className="w-full px-4 py-2 border rounded-lg"
+                rows={4}
+                placeholder="例: 技術的な詳細を含めてください&#10;例: 初心者向けに簡単な表現で"
+              />
+              <p className="mt-2 text-sm text-gray-600">
+                AIに特別な要求がある場合はここに入力してください
+              </p>
+            </div>
+
+            <div className="bg-blue-50 p-4 rounded-lg mb-6">
+              <div className="flex items-start gap-2">
+                <Sparkles className="w-5 h-5 text-blue-600 mt-0.5" />
+                <div className="text-sm text-blue-800">
+                  <div className="font-medium mb-1">非母語者向け設定</div>
+                  <div>生成される回答は日本語学習者（JLPT N2-N1レベル）に適した、理解しやすく実用的な表現になります。</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={handleAnalyzeQuestion}
+                disabled={loading}
+                className="flex-1 bg-purple-600 text-white py-3 rounded-lg hover:bg-purple-700 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
+                解析を開始
+              </button>
+              <button
+                onClick={() => {
+                  setShowAnalysisModal(false);
+                  setAnalyzingQuestion(null);
+                  setAnalysisPrompt('');
+                  setError('');
+                }}
+                disabled={loading}
+                className="flex-1 bg-gray-200 py-3 rounded-lg hover:bg-gray-300 disabled:opacity-50"
+              >
+                キャンセル
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 export default App;
+

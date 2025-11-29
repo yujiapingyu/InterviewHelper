@@ -88,7 +88,7 @@ Format: {"skills":["skill1","skill2"],"workExperience":"2020-2023: Company Name 
 /**
  * Generate interview questions using Gemini AI
  */
-export async function generateQuestions(resumeInfo, existingSummaries = [], category = 'HR', count = 3) {
+export async function generateQuestions(resumeInfo, existingSummaries = [], category = 'HR', count = 3, isNonNative = true) {
   // Build detailed resume context
   let resumeContext = 'General candidate';
   
@@ -125,6 +125,16 @@ Reference work experience ONLY in terms of achievements, team dynamics, or chall
 - Technical challenges they might have faced
 Ask questions that directly relate to the TECHNOLOGIES and EXPERIENCE in their resume.`;
 
+  const nativeLevel = isNonNative 
+    ? `IMPORTANT: This is for a NON-NATIVE Japanese speaker (学習者レベル).
+For model_answer_ja:
+- Use JLPT N2-N1 level vocabulary and grammar (clear and learnable for non-natives)
+- Keep sentences moderately simple while maintaining business politeness
+- Avoid overly complex or literary expressions
+- Use common, practical phrases that a non-native speaker can actually learn and use
+- Focus on natural spoken patterns but at a learnable level`
+    : `This is for a NATIVE Japanese speaker. Use natural native-level expressions.`;
+
   const prompt = `Generate ${count} Japanese interview ${category} questions SPECIFICALLY tailored to this candidate's background. 
 
 ${resumeContext}
@@ -134,8 +144,18 @@ ${categoryGuide}
 
 IMPORTANT: Questions MUST reference the candidate's actual skills/experience from their resume. Generic questions will be rejected.
 
+${nativeLevel}
+
+For model_answer_ja, write in NATURAL CONVERSATIONAL BUSINESS JAPANESE:
+- Use spoken forms like ～と思います、～だと考えております、～んです instead of formal written forms
+- Add natural fillers and connectors: そうですね、実は、特に、やはり
+- Use です/ます style but keep it conversational, not stiff
+- Avoid overly formal written expressions like ～である、～において
+- Make it sound like a person actually speaking in an interview, not reading from a script
+${isNonNative ? '- Use clear N2-N1 level expressions that non-natives can learn and use' : '- Use natural native-level expressions'}
+
 Return ONLY a JSON array (no markdown, no code blocks):
-[{"question_ja":"Japanese question referencing their skills","question_zh":"Chinese translation","model_answer_ja":"【Point】conclusion\\n【Reason】reason\\n【Example】example\\n【Point】conclusion","tips_ja":["tip1","tip2","tip3"],"summary":"brief English summary"}]`;
+[{"question_ja":"Japanese question referencing their skills","question_zh":"Chinese translation","model_answer_ja":"【Point】natural spoken conclusion\n【Reason】conversational reason using ～と思います\n【Example】example with natural speech patterns\n【Point】natural conclusion","tips_ja":["tip1","tip2","tip3"],"summary":"brief English summary"}]`;
 
   try {
     const response = await fetch(
@@ -195,8 +215,19 @@ Return ONLY a JSON array (no markdown, no code blocks):
 /**
  * Evaluate initial answer to a question
  */
-export async function evaluateAnswer(userAnswer, question) {
+export async function evaluateAnswer(userAnswer, question, isNonNative = true) {
+  const nativeContext = isNonNative
+    ? `IMPORTANT: This candidate is a NON-NATIVE Japanese speaker (学習者).
+- Be encouraging and constructive in feedback
+- Focus on communication effectiveness, not perfect grammar
+- In correctedVersion, use JLPT N2-N1 level expressions (clear and learnable)
+- Avoid overly native or complex expressions in the correction
+- Highlight what they did well before suggesting improvements`
+    : `This candidate is a NATIVE Japanese speaker. Evaluate at native professional level.`;
+
   const prompt = `You are a professional Japanese interviewer. Evaluate this candidate's answer.
+
+${nativeContext}
 
 Question: ${question}
 
@@ -205,10 +236,10 @@ Candidate's Answer: ${userAnswer}
 Provide detailed feedback in JSON format (no markdown, no code blocks):
 {
   "score": 0-100,
-  "feedback": "Overall assessment in Japanese (100 chars max)",
+  "feedback": "Overall assessment in Japanese (100 chars max, encouraging tone for non-natives)",
   "strengths": ["strength1", "strength2"],
   "improvements": ["improvement1", "improvement2"],
-  "correctedVersion": "Improved version of the answer in Japanese"
+  "correctedVersion": "Improved version in NATURAL CONVERSATIONAL BUSINESS JAPANESE${isNonNative ? ' at N2-N1 level (clear and learnable)' : ''}. Use spoken forms like ～と思います、～んです. Add natural speech patterns. Make it sound like someone actually speaking in an interview."
 }`;
 
   try {
@@ -322,8 +353,17 @@ Return ONLY a JSON object (no markdown, no code blocks):
 /**
  * Evaluate follow-up answer and decide if more follow-ups needed
  */
-export async function evaluateFollowUpAnswer(originalQuestion, followUpQuestion, userAnswer, conversationHistory = []) {
+export async function evaluateFollowUpAnswer(originalQuestion, followUpQuestion, userAnswer, conversationHistory = [], isNonNative = true) {
+  const nativeContext = isNonNative
+    ? `IMPORTANT: This candidate is a NON-NATIVE Japanese speaker (学習者).
+- Be encouraging and constructive
+- Focus on communication effectiveness
+- In correctedVersion, use N2-N1 level expressions (clear and learnable)`
+    : `This candidate is a NATIVE Japanese speaker.`;
+
   const prompt = `You are evaluating a candidate's answer to a follow-up question in a Japanese interview.
+
+${nativeContext}
 
 Original Question: ${originalQuestion}
 Follow-up Question: ${followUpQuestion}
@@ -332,11 +372,11 @@ Candidate's Answer: ${userAnswer}
 Evaluate the answer and return JSON (no markdown):
 {
   "score": 0-100,
-  "feedback": "Japanese feedback on their answer",
+  "feedback": "Japanese feedback on their answer (encouraging for non-natives)",
   "strengths": ["strength1", "strength2"],
   "improvements": ["improvement1", "improvement2"],
   "needsMoreFollowUp": true/false,
-  "correctedVersion": "Improved version of their answer in Japanese"
+  "correctedVersion": "Improved version in NATURAL CONVERSATIONAL BUSINESS JAPANESE${isNonNative ? ' at N2-N1 level' : ''}. Use spoken forms like ～と思います、～んです."
 }`;
 
   try {
@@ -447,11 +487,152 @@ Provide analysis in JSON format (no markdown, no code blocks):
   }
 }
 
+/**
+ * Extract interview questions from document text
+ * Supports both Japanese and Chinese questions
+ */
+export async function extractQuestionsFromDocument(documentText, category = 'HR') {
+  const prompt = `Extract ALL interview questions from this document text. The questions may be in Japanese or Chinese.
+
+Document Text:
+${documentText.substring(0, 4000)}
+
+Requirements:
+1. Extract every question found in the document
+2. If a question is in Chinese, translate it to Japanese
+3. If a question is in Japanese, leave it as is
+4. Return ONLY the questions, NO answers or other fields yet
+5. Categorize each question as either "HR" or "Tech" based on content
+
+Return ONLY a JSON array (no markdown, no code blocks):
+[{"question_ja":"Japanese question","question_zh":"Chinese original or translation","category":"HR or Tech"}]
+
+If no questions are found, return an empty array: []`;
+
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.3,
+            maxOutputTokens: 8192
+          }
+        })
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`Gemini API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    
+    if (!text) {
+      throw new Error('Gemini API returned empty response');
+    }
+
+    const parsed = safeParseGeminiJSON(text, []);
+    
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    
+    return parsed;
+  } catch (error) {
+    console.error('Question extraction error:', error);
+    throw error;
+  }
+}
+
+/**
+ * Generate complete question data for a question
+ * This fills in model_answer_ja, tips_ja, and summary fields
+ */
+export async function generateQuestionAnalysis(questionText, category = 'HR', additionalPrompt = '', isNonNative = true) {
+  const nativeLevel = isNonNative 
+    ? `IMPORTANT: This is for a NON-NATIVE Japanese speaker (学習者レベル). 
+- model_answer_ja should be at JLPT N2-N1 level, NOT native-level complexity
+- Use clear, common vocabulary and grammar patterns
+- Avoid overly complex or literary expressions
+- Keep sentences moderately simple while maintaining business politeness
+- Focus on practical, learnable phrases that a non-native speaker can actually use`
+    : `This is for a NATIVE Japanese speaker. Use natural native-level expressions.`;
+
+  const prompt = `Generate a complete analysis for this interview question.
+
+Question: ${questionText}
+Category: ${category}
+${additionalPrompt ? `Additional Requirements: ${additionalPrompt}` : ''}
+
+${nativeLevel}
+
+For model_answer_ja, write in NATURAL CONVERSATIONAL BUSINESS JAPANESE:
+- Use spoken forms like ～と思います、～だと考えております、～んです
+- Add natural fillers: そうですね、実は、特に、やはり
+- Use です/ます style but keep it conversational, not stiff
+- Make it sound like someone actually speaking in an interview
+${isNonNative ? '- Use N2-N1 level vocabulary and grammar (clear and learnable for non-natives)' : '- Use natural native-level expressions'}
+
+Return ONLY a JSON object (no markdown, no code blocks):
+{
+  "model_answer_ja": "【Point】conclusion\n【Reason】reason\n【Example】example\n【Point】conclusion",
+  "tips_ja": ["tip1", "tip2", "tip3"],
+  "summary": "brief English summary"
+}`;
+
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.7,
+            maxOutputTokens: 2048
+          }
+        })
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`Gemini API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    
+    if (!text) {
+      throw new Error('Gemini API returned empty response');
+    }
+
+    const parsed = safeParseGeminiJSON(text, {
+      model_answer_ja: '',
+      tips_ja: [],
+      summary: ''
+    });
+    
+    return parsed;
+  } catch (error) {
+    console.error('Question analysis error:', error);
+    throw error;
+  }
+}
+
 export default {
   parseResume,
   generateQuestions,
   evaluateAnswer,
   generateFollowUpQuestion,
   evaluateFollowUpAnswer,
-  analyzeVocabulary
+  analyzeVocabulary,
+  extractQuestionsFromDocument,
+  generateQuestionAnalysis
 };
+

@@ -184,6 +184,34 @@ export const questionsAPI = {
       body: JSON.stringify({ category, count, resumeInfo }),
     });
   },
+
+  async importFromDocument(file) {
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    const token = getToken();
+    const response = await fetch(`${API_BASE_URL}/questions/import`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Import failed');
+    }
+
+    return response.json();
+  },
+
+  async analyzeQuestion(id, additionalPrompt = '', generateAnswer = true) {
+    return fetchWithAuth(`/questions/${id}/analyze`, {
+      method: 'POST',
+      body: JSON.stringify({ additionalPrompt, generateAnswer }),
+    });
+  },
 };
 
 // Practice Records API

@@ -349,6 +349,107 @@ app.post('/api/questions/generate', authenticate, async (req, res) => {
   }
 });
 
+// Import questions from document
+app.post('/api/questions/import', authenticate, upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const { extractTextFromFile } = await import('./fileParser.js');
+    const { extractQuestionsFromDocument } = await import('./gemini.js');
+
+    // Extract text from document
+    const documentText = await extractTextFromFile(req.file.buffer, req.file.originalname);
+
+    // Extract questions using AI
+    const extractedQuestions = await extractQuestionsFromDocument(documentText);
+
+    if (extractedQuestions.length === 0) {
+      return res.status(400).json({ error: 'No questions found in the document' });
+    }
+
+    // Insert questions into database (without answers/tips initially)
+    const insertedQuestions = [];
+    for (const q of extractedQuestions) {
+      const [result] = await pool.query(
+        `INSERT INTO questions (user_id, category, question_ja, question_zh, is_ai_generated)
+         VALUES (?, ?, ?, ?, 0)`,
+        [
+          req.userId,
+          q.category || 'HR',
+          q.question_ja,
+          q.question_zh || null
+        ]
+      );
+      
+      const [questionRows] = await pool.query('SELECT * FROM questions WHERE id = ?', [result.insertId]);
+      const question = questionRows[0];
+      insertedQuestions.push(question);
+    }
+
+    res.json({
+      message: `Successfully imported ${insertedQuestions.length} questions`,
+      questions: insertedQuestions
+    });
+  } catch (error) {
+    console.error('Question import error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Generate complete analysis for a question
+app.post('/api/questions/:id/analyze', authenticate, async (req, res) => {
+  const { additionalPrompt = '', generateAnswer = true } = req.body;
+  
+  try {
+    const [rows] = await pool.query('SELECT * FROM questions WHERE id = ? AND user_id = ?', [req.params.id, req.userId]);
+    const question = rows[0];
+
+    if (!question) {
+      return res.status(404).json({ error: 'Question not found' });
+    }
+
+    const { generateQuestionAnalysis } = await import('./gemini.js');
+
+    // Generate analysis using AI (defaults to non-native level)
+    const analysis = await generateQuestionAnalysis(
+      question.question_ja,
+      question.category,
+      additionalPrompt,
+      true // isNonNative
+    );
+
+    // Update question with analysis
+    const updateFields = {
+      summary: analysis.summary,
+      tips_ja: JSON.stringify(analysis.tips_ja || [])
+    };
+
+    if (generateAnswer) {
+      updateFields.model_answer_ja = analysis.model_answer_ja;
+    }
+
+    const setClause = Object.keys(updateFields).map(key => `${key} = ?`).join(', ');
+    const values = Object.values(updateFields);
+
+    await pool.query(
+      `UPDATE questions SET ${setClause}, updated_at = NOW() WHERE id = ?`,
+      [...values, req.params.id]
+    );
+
+    const [updatedRows] = await pool.query('SELECT * FROM questions WHERE id = ?', [req.params.id]);
+    const updatedQuestion = updatedRows[0];
+    if (updatedQuestion.tips_ja) updatedQuestion.tips_ja = JSON.parse(updatedQuestion.tips_ja);
+
+    res.json(updatedQuestion);
+  } catch (error) {
+    console.error('Question analysis error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+
 // ===== PRACTICE RECORDS ROUTES =====
 
 app.post('/api/practice', authenticate, async (req, res) => {

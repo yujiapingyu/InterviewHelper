@@ -1,5 +1,5 @@
 import pdfParse from 'pdf-parse';
-import JSZip from 'jszip';
+import mammoth from 'mammoth';
 
 /**
  * Extract text from PDF file (Node.js only)
@@ -19,24 +19,11 @@ export async function extractTextFromPDF(buffer) {
  */
 export async function extractTextFromWord(buffer) {
   try {
-    const zip = await JSZip.loadAsync(buffer);
-    const doc = await zip.file('word/document.xml').async('string');
-    
-    // Simple XML text extraction
-    const text = doc
-      .replace(/<[^>]*>/g, ' ')  // Remove XML tags
-      .replace(/\s+/g, ' ')       // Normalize whitespace
-      .trim();
-    
-    return text;
+    const result = await mammoth.extractRawText({ buffer });
+    return result.value;
   } catch (error) {
     console.error('Error parsing Word document:', error);
-    // Fallback: try to extract as plain text
-    try {
-      return buffer.toString('utf-8');
-    } catch (e) {
-      throw new Error('Failed to parse Word document');
-    }
+    throw new Error('Failed to parse Word document');
   }
 }
 
@@ -44,6 +31,15 @@ export async function extractTextFromWord(buffer) {
  * Extract text from plain text file
  */
 export async function extractTextFromPlainText(buffer) {
+  return buffer.toString('utf-8');
+}
+
+/**
+ * Extract text from Markdown file
+ */
+export async function extractTextFromMarkdown(buffer) {
+  // For now, just extract as plain text
+  // You can use a markdown parser if needed
   return buffer.toString('utf-8');
 }
 
@@ -59,6 +55,8 @@ export async function extractTextFromFile(buffer, fileName) {
     return await extractTextFromWord(buffer);
   } else if (lowerName.endsWith('.txt')) {
     return await extractTextFromPlainText(buffer);
+  } else if (lowerName.endsWith('.md')) {
+    return await extractTextFromMarkdown(buffer);
   } else {
     // Try as plain text
     return await extractTextFromPlainText(buffer);
