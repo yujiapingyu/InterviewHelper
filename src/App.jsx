@@ -3,10 +3,10 @@ import {
   User, LogIn, LogOut, BookOpen, Mic, FileText, Star, 
   PlusCircle, Edit, Trash2, Play, ChevronRight, Home,
   Upload, RefreshCw, Check, X, Loader2, MessageSquare, Shuffle, Send, Book, Search, RotateCcw, Eye, EyeOff,
-  FileUp, Sparkles
+  FileUp, Sparkles, Coins, Settings, CreditCard, History
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
-import { auth, questionsAPI, practiceAPI, favoritesAPI, resumeAPI, conversationAPI, vocabularyAPI } from './utils/api';
+import { auth, questionsAPI, practiceAPI, favoritesAPI, resumeAPI, conversationAPI, vocabularyAPI, creditsAPI } from './utils/api';
 import { getAIFeedback, startSpeechRecognition } from './utils/gemini';
 
 function App() {
@@ -80,6 +80,28 @@ function App() {
   // Resume state
   const [resumes, setResumes] = useState([]);
 
+  // Credits state
+  const [aiCredits, setAiCredits] = useState(0);
+  const [creditsCosts, setCreditsCosts] = useState([]);
+  const [showCreditsModal, setShowCreditsModal] = useState(false);
+  const [showRechargeModal, setShowRechargeModal] = useState(false);
+  const [creditsHistory, setCreditsHistory] = useState([]);
+
+  // Settings state
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [settingsForm, setSettingsForm] = useState({
+    notion_api_key: '',
+    notion_database_id: '',
+    username: ''
+  });
+
+  // Toast notification state
+  const [toast, setToast] = useState(null);
+
+  // Question expand state
+  const [expandedQuestions, setExpandedQuestions] = useState(new Set());
+
   useEffect(() => {
     loadCurrentUser();
   }, []);
@@ -101,12 +123,13 @@ function App() {
 
   const loadUserData = async () => {
     try {
-      const [questionsData, favoritesData, resumesData, vocabularyData, notionStatus] = await Promise.all([
+      const [questionsData, favoritesData, resumesData, vocabularyData, notionStatus, costsData] = await Promise.all([
         questionsAPI.getAll(),
         favoritesAPI.getAll(),
         resumeAPI.getAll(),
         vocabularyAPI.getAll(),
-        vocabularyAPI.getNotionStatus()
+        vocabularyAPI.getNotionStatus(),
+        creditsAPI.getCosts()
       ]);
       
       setQuestions(questionsData);
@@ -114,6 +137,14 @@ function App() {
       setResumes(resumesData);
       setVocabularyNotes(vocabularyData);
       setNotionEnabled(notionStatus.enabled);
+      setCreditsCosts(costsData);
+      
+      // Load user info to get credits
+      const user = await auth.getCurrentUser();
+      if (user) {
+        setAiCredits(user.ai_credits || 0);
+        setCurrentUser(user);
+      }
     } catch (err) {
       console.error('Error loading user data:', err);
     }
@@ -165,6 +196,118 @@ function App() {
     setQuestions([]);
     setFavorites([]);
     setSelectedQuestion(null);
+  };
+
+  // Refresh user credits after AI operations
+  const refreshUserCredits = async () => {
+    try {
+      const user = await auth.getCurrentUser();
+      setAiCredits(user.ai_credits || 0);
+    } catch (err) {
+      console.error('Failed to refresh credits:', err);
+    }
+  };
+
+  // Show toast notification
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 2000);
+  };
+
+  // Toggle question expand/collapse
+  const toggleQuestionExpand = (questionId) => {
+    setExpandedQuestions(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(questionId)) {
+        newSet.delete(questionId);
+      } else {
+        newSet.add(questionId);
+      }
+      return newSet;
+    });
+  };
+
+  // Settings handlers
+  const handleOpenSettings = () => {
+    setSettingsForm({
+      notion_api_key: '', // Don't prefill truncated value
+      notion_database_id: '', // Don't prefill truncated value  
+      username: currentUser.username || ''
+    });
+    setShowApiKey(false); // Reset visibility
+    setShowSettingsModal(true);
+  };
+
+  const handleSaveSettings = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      // Only send fields that have been modified
+      const payload = {};
+      
+      if (settingsForm.username && settingsForm.username !== currentUser.username) {
+        payload.username = settingsForm.username;
+      }
+      
+      // Only update Notion keys if user has entered something
+      if (settingsForm.notion_api_key && settingsForm.notion_api_key.trim()) {
+        payload.notion_api_key = settingsForm.notion_api_key.trim();
+      }
+      
+      if (settingsForm.notion_database_id && settingsForm.notion_database_id.trim()) {
+        payload.notion_database_id = settingsForm.notion_database_id.trim();
+      }
+      
+      if (Object.keys(payload).length === 0) {
+        alert('変更がありません');
+        setShowSettingsModal(false);
+        return;
+      }
+      
+      const updatedUser = await auth.updateSettings(payload);
+      setCurrentUser(updatedUser);
+      setNotionEnabled(updatedUser.notion_configured);
+      setShowSettingsModal(false);
+      alert('設定を保存しました！');
+    } catch (err) {
+      setError(err.message);
+      alert('設定の保存に失敗しました: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Credits handlers
+  const handleOpenCredits = async () => {
+    setLoading(true);
+    try {
+      const history = await creditsAPI.getHistory();
+      setCreditsHistory(history);
+      setShowCreditsModal(true);
+    } catch (err) {
+      alert('履歴の読み込みに失敗しました: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRecharge = async (amount) => {
+    setLoading(true);
+    setError('');
+    try {
+      const result = await creditsAPI.recharge(amount);
+      setAiCredits(result.credits_after);
+      alert(result.message);
+      setShowRechargeModal(false);
+      
+      // Reload user data
+      await loadUserData();
+    } catch (err) {
+      setError(err.message);
+      alert('充值失败: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const startPractice = (question) => {
@@ -317,6 +460,9 @@ function App() {
       const conversation = await conversationAPI.create(selectedQuestion.id, userAnswer);
       setActiveConversation(conversation);
       setConversationMode(true);
+      
+      // Refresh credits after AI operation
+      await refreshUserCredits();
     } catch (err) {
       setError('対話モードの開始に失敗しました: ' + err.message);
     } finally {
@@ -337,6 +483,9 @@ function App() {
       const followUp = await conversationAPI.generateFollowUp(activeConversation.id);
       setPendingFollowUp(followUp);
       setFollowUpAnswer('');
+      
+      // Refresh credits after AI operation
+      await refreshUserCredits();
     } catch (err) {
       setError('追問の生成に失敗しました: ' + err.message);
     } finally {
@@ -363,6 +512,9 @@ function App() {
       // Clear pending follow-up
       setPendingFollowUp({ ...pendingFollowUp, evaluation });
       setFollowUpAnswer('');
+      
+      // Refresh credits after AI operation
+      await refreshUserCredits();
       
       // Show whether more follow-ups are recommended
       if (!evaluation.needsMoreFollowUp) {
@@ -463,6 +615,12 @@ function App() {
       const analysis = await vocabularyAPI.analyze(selectedText);
       setVocabularyAnalysis(analysis);
       setShowVocabularyPopup(true);
+      
+      // Hide the floating search button after analysis
+      setFloatingSearchPos(null);
+      
+      // Refresh credits after AI operation
+      await refreshUserCredits();
     } catch (err) {
       setError('词汇分析失败: ' + err.message);
     } finally {
@@ -471,18 +629,31 @@ function App() {
   };
 
   const handleSaveVocabulary = async () => {
-    if (!vocabularyAnalysis) return;
+    if (!vocabularyAnalysis || !selectedText) {
+      alert('保存失败：没有选择单词');
+      return;
+    }
+    
+    // Save the data before clearing state
+    const wordToSave = selectedText.trim();
+    const dataToSave = {
+      word: wordToSave,
+      translation: vocabularyAnalysis.translation,
+      explanation: vocabularyAnalysis.explanation,
+      example_sentences: vocabularyAnalysis.exampleSentences,
+      tags: vocabularyAnalysis.tags
+    };
+    
+    // Clear UI state immediately to prevent showing "分析中..." button
+    setShowVocabularyPopup(false);
+    setSelectedText('');
+    setVocabularyAnalysis(null);
+    setFloatingSearchPos(null);
     
     setLoading(true);
     try {
-      console.log('📤 Saving vocabulary:', selectedText);
-      const savedNote = await vocabularyAPI.save({
-        word: selectedText,
-        translation: vocabularyAnalysis.translation,
-        explanation: vocabularyAnalysis.explanation,
-        example_sentences: vocabularyAnalysis.exampleSentences,
-        tags: vocabularyAnalysis.tags
-      });
+      console.log('📤 Saving vocabulary:', wordToSave);
+      const savedNote = await vocabularyAPI.save(dataToSave);
       
       console.log('✅ Vocabulary saved:', savedNote);
       
@@ -490,25 +661,18 @@ function App() {
       const updatedNotes = await vocabularyAPI.getAll();
       setVocabularyNotes(updatedNotes);
       
-      // Show detailed sync status
-      let syncMessage;
+      // Show toast notification
       if (savedNote.synced_to_notion) {
-        syncMessage = `✅ 保存成功！\n📝 已同步到Notion\n🔗 Notion Page ID: ${savedNote.notion_page_id?.substring(0, 8)}...`;
+        showToast('✅ 保存成功！已同步到Notion', 'success');
       } else if (notionEnabled) {
-        syncMessage = '✅ 已保存到本地数据库\n⚠️ Notion同步失败（请查看控制台日志）';
+        showToast('✅ 已保存到本地数据库', 'warning');
       } else {
-        syncMessage = '✅ 保存成功！';
+        showToast('✅ 保存成功！', 'success');
       }
-      
-      alert(syncMessage);
-      setShowVocabularyPopup(false);
-      setSelectedText('');
-      setVocabularyAnalysis(null);
-      setFloatingSearchPos(null);
     } catch (err) {
       console.error('❌ Save vocabulary error:', err);
       setError('保存失败: ' + err.message);
-      alert('❌ 保存失败: ' + err.message);
+      showToast('❌ 保存失败: ' + err.message, 'error');
     } finally {
       setLoading(false);
     }
@@ -656,6 +820,10 @@ function App() {
       const updatedQuestions = await questionsAPI.getAll();
       setQuestions(updatedQuestions);
       setShowGenerateModal(false);
+      
+      // Refresh credits after AI operation
+      await refreshUserCredits();
+      
       alert(`${count}個の新しい${category}質問を生成しました！`);
     } catch (err) {
       setError('質問の生成に失敗しました: ' + err.message);
@@ -713,6 +881,10 @@ function App() {
       setShowAnalysisModal(false);
       setAnalyzingQuestion(null);
       setAnalysisPrompt('');
+      
+      // Refresh credits after AI operation
+      await refreshUserCredits();
+      
       alert('質問の解析が完了しました！');
     } catch (err) {
       setError('質問の解析に失敗しました: ' + err.message);
@@ -911,13 +1083,36 @@ function App() {
             <h1 className="text-2xl font-bold text-gray-800">日本面接練習器</h1>
             <span className="text-sm text-gray-500">ようこそ、{currentUser.username}さん</span>
           </div>
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition"
-          >
-            <LogOut className="w-5 h-5" />
-            ログアウト
-          </button>
+          <div className="flex items-center gap-3">
+            {/* AI Credits Display */}
+            <button
+              onClick={handleOpenCredits}
+              className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-yellow-400 to-yellow-500 text-white rounded-lg hover:from-yellow-500 hover:to-yellow-600 transition shadow-sm"
+              title="AIポイント残高"
+            >
+              <Coins className="w-5 h-5" />
+              <span className="font-semibold">{aiCredits}</span>
+              <span className="text-xs">ポイント</span>
+            </button>
+            
+            {/* Settings Button */}
+            <button
+              onClick={handleOpenSettings}
+              className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition"
+              title="設定"
+            >
+              <Settings className="w-5 h-5" />
+            </button>
+            
+            {/* Logout Button */}
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition"
+            >
+              <LogOut className="w-5 h-5" />
+              ログアウト
+            </button>
+          </div>
         </div>
       </header>
 
@@ -1172,86 +1367,125 @@ function App() {
 
               {/* Questions List */}
               <div className="space-y-4">
-                {filteredQuestions.map((question) => (
-                  <div key={question.id} className="border rounded-lg p-4 hover:border-blue-300 transition" onMouseUp={handleTextSelection}>
-                    <div className="flex items-start justify-between mb-2">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className={`px-2 py-1 text-xs rounded ${
-                            question.category === 'HR' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'
-                          }`}>
-                            {question.category}
-                          </span>
-                          {question.is_ai_generated && (
-                            <span className="px-2 py-1 text-xs rounded bg-purple-100 text-purple-700">AI生成</span>
+                {filteredQuestions.map((question) => {
+                  const isExpanded = expandedQuestions.has(question.id);
+                  return (
+                  <div key={question.id} className="border rounded-lg hover:border-blue-300 transition" onMouseUp={handleTextSelection}>
+                    <div className="p-4">
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex-1 cursor-pointer" onClick={() => toggleQuestionExpand(question.id)}>
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className={`px-2 py-1 text-xs rounded ${
+                              question.category === 'HR' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'
+                            }`}>
+                              {question.category}
+                            </span>
+                            {question.is_ai_generated && (
+                              <span className="px-2 py-1 text-xs rounded bg-purple-100 text-purple-700">AI生成</span>
+                            )}
+                            <ChevronRight className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                          </div>
+                          <h3 className="font-semibold text-lg mb-1">{question.question_ja}</h3>
+                          {question.question_zh && (
+                            <p className="text-gray-600 text-sm">{question.question_zh}</p>
                           )}
                         </div>
-                        <h3 className="font-semibold text-lg mb-1">{question.question_ja}</h3>
-                        {question.question_zh && (
-                          <p className="text-gray-600 text-sm">{question.question_zh}</p>
-                        )}
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleToggleFavorite(question.id)}
+                            className={`p-2 rounded-lg ${
+                              favorites.some(f => f.question_id === question.id)
+                                ? 'text-yellow-500 bg-yellow-50'
+                                : 'text-gray-400 hover:bg-gray-100'
+                            }`}
+                          >
+                            <Star className="w-5 h-5" fill={favorites.some(f => f.question_id === question.id) ? 'currentColor' : 'none'} />
+                          </button>
+                          {question.user_id && (
+                            <>
+                              <button
+                                onClick={() => {
+                                  setEditingQuestion(question);
+                                  setQuestionForm({
+                                    category: question.category,
+                                    question_ja: question.question_ja,
+                                    question_zh: question.question_zh || '',
+                                    model_answer_ja: question.model_answer_ja || '',
+                                    tips_ja: question.tips_ja || [],
+                                    summary: question.summary || ''
+                                  });
+                                  setCurrentView('editQuestion');
+                                }}
+                                className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg"
+                              >
+                                <Edit className="w-5 h-5" />
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setAnalyzingQuestion(question);
+                                  setAnalysisPrompt('');
+                                  setGenerateAnswer(!question.model_answer_ja);
+                                  setShowAnalysisModal(true);
+                                }}
+                                className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg"
+                                title="AI解析"
+                              >
+                                <Sparkles className="w-5 h-5" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteQuestion(question.id)}
+                                className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
+                              >
+                                <Trash2 className="w-5 h-5" />
+                              </button>
+                            </>
+                          )}
+                          <button
+                            onClick={() => startPractice(question)}
+                            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+                          >
+                            <Play className="w-4 h-4" />
+                            練習
+                          </button>
+                        </div>
                       </div>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleToggleFavorite(question.id)}
-                          className={`p-2 rounded-lg ${
-                            favorites.some(f => f.question_id === question.id)
-                              ? 'text-yellow-500 bg-yellow-50'
-                              : 'text-gray-400 hover:bg-gray-100'
-                          }`}
-                        >
-                          <Star className="w-5 h-5" fill={favorites.some(f => f.question_id === question.id) ? 'currentColor' : 'none'} />
-                        </button>
-                        {question.user_id && (
-                          <>
-                            <button
-                              onClick={() => {
-                                setEditingQuestion(question);
-                                setQuestionForm({
-                                  category: question.category,
-                                  question_ja: question.question_ja,
-                                  question_zh: question.question_zh || '',
-                                  model_answer_ja: question.model_answer_ja || '',
-                                  tips_ja: question.tips_ja || [],
-                                  summary: question.summary || ''
-                                });
-                                setCurrentView('editQuestion');
-                              }}
-                              className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg"
-                            >
-                              <Edit className="w-5 h-5" />
-                            </button>
-                            <button
-                              onClick={() => {
-                                setAnalyzingQuestion(question);
-                                setAnalysisPrompt('');
-                                setGenerateAnswer(!question.model_answer_ja);
-                                setShowAnalysisModal(true);
-                              }}
-                              className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg"
-                              title="AI解析"
-                            >
-                              <Sparkles className="w-5 h-5" />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteQuestion(question.id)}
-                              className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
-                            >
-                              <Trash2 className="w-5 h-5" />
-                            </button>
-                          </>
-                        )}
-                        <button
-                          onClick={() => startPractice(question)}
-                          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
-                        >
-                          <Play className="w-4 h-4" />
-                          練習
-                        </button>
-                      </div>
+
+                      {/* Expanded Details */}
+                      {isExpanded && (
+                        <div className="mt-4 pt-4 border-t space-y-4">
+                          {question.model_answer_ja && (
+                            <div>
+                              <h4 className="font-semibold text-sm text-gray-700 mb-2">📝 模範回答:</h4>
+                              <div className="bg-gray-50 p-3 rounded-lg text-sm whitespace-pre-wrap text-gray-800">
+                                {question.model_answer_ja}
+                              </div>
+                            </div>
+                          )}
+                          {question.tips_ja && question.tips_ja.length > 0 && (
+                            <div>
+                              <h4 className="font-semibold text-sm text-gray-700 mb-2">💡 回答のポイント:</h4>
+                              <ul className="space-y-1">
+                                {question.tips_ja.map((tip, idx) => (
+                                  <li key={idx} className="text-sm text-gray-700 flex items-start gap-2">
+                                    <span className="text-blue-500 mt-0.5">•</span>
+                                    <span>{tip}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          {question.summary && (
+                            <div>
+                              <h4 className="font-semibold text-sm text-gray-700 mb-2">📌 Summary:</h4>
+                              <p className="text-sm text-gray-600">{question.summary}</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
-                ))}
+                  );
+                })}
 
                 {filteredQuestions.length === 0 && (
                   <div className="text-center py-12 text-gray-500">
@@ -2219,7 +2453,12 @@ function App() {
       {showVocabularyPopup && vocabularyAnalysis && (
         <div 
           className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50" 
-          onClick={() => setShowVocabularyPopup(false)}
+          onClick={() => {
+            setShowVocabularyPopup(false);
+            setSelectedText('');
+            setVocabularyAnalysis(null);
+            setFloatingSearchPos(null);
+          }}
         >
           <div 
             className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto relative" 
@@ -2234,7 +2473,12 @@ function App() {
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-2xl font-bold">単語分析</h3>
                 <button 
-                  onClick={() => setShowVocabularyPopup(false)} 
+                  onClick={() => {
+                    setShowVocabularyPopup(false);
+                    setSelectedText('');
+                    setVocabularyAnalysis(null);
+                    setFloatingSearchPos(null);
+                  }} 
                   className="p-2 hover:bg-red-50 text-red-600 rounded-lg transition-colors"
                   title="关闭"
                 >
@@ -2302,7 +2546,12 @@ function App() {
                   )}
                 </button>
                 <button
-                  onClick={() => setShowVocabularyPopup(false)}
+                  onClick={() => {
+                    setShowVocabularyPopup(false);
+                    setSelectedText('');
+                    setVocabularyAnalysis(null);
+                    setFloatingSearchPos(null);
+                  }}
                   disabled={loading}
                   className="px-6 bg-gray-200 text-gray-700 py-3 rounded-lg hover:bg-gray-300 disabled:opacity-50 transition-all"
                 >
@@ -2559,6 +2808,391 @@ function App() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Settings Modal */}
+      {showSettingsModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b flex items-center justify-between sticky top-0 bg-white">
+              <h2 className="text-2xl font-bold flex items-center gap-2">
+                <Settings className="w-6 h-6" />
+                設定
+              </h2>
+              <button
+                onClick={() => {
+                  setShowSettingsModal(false);
+                  setError('');
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6">
+              {/* User Settings */}
+              <div>
+                <h3 className="text-lg font-semibold mb-3">ユーザー情報</h3>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">ユーザー名</label>
+                  <input
+                    type="text"
+                    value={settingsForm.username}
+                    onChange={(e) => setSettingsForm({ ...settingsForm, username: e.target.value })}
+                    className="w-full px-4 py-2 border rounded-lg"
+                    placeholder="山田太郎"
+                  />
+                </div>
+              </div>
+
+              {/* Notion Integration */}
+              <div>
+                <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                  <Book className="w-5 h-5" />
+                  Notion連携設定（単語帳同期）
+                </h3>
+                <p className="text-sm text-gray-600 mb-4">
+                  自分のNotion APIキーとデータベースIDを設定することで、単語帳を個人のNotionデータベースに自動同期できます。
+                </p>
+
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Notion API Key
+                      <a 
+                        href="https://www.notion.so/my-integrations" 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="ml-2 text-blue-600 hover:underline text-xs"
+                      >
+                        取得方法 →
+                      </a>
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showApiKey ? "text" : "password"}
+                        value={settingsForm.notion_api_key}
+                        onChange={(e) => setSettingsForm({ ...settingsForm, notion_api_key: e.target.value })}
+                        className="w-full px-4 py-2 pr-10 border rounded-lg font-mono text-sm"
+                        placeholder={currentUser.notion_configured ? `現在の設定: ${currentUser.notion_api_key}` : "secret_xxxxxxxxxxxxxxxxx"}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowApiKey(!showApiKey)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-500 hover:text-gray-700 transition"
+                        title={showApiKey ? "隠す" : "表示"}
+                      >
+                        {showApiKey ? (
+                          <EyeOff className="w-5 h-5" />
+                        ) : (
+                          <Eye className="w-5 h-5" />
+                        )}
+                      </button>
+                    </div>
+                    {currentUser.notion_configured && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        💡 空欄のまま保存すると既存の設定を保持します。変更する場合は新しいキーを入力してください。
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Notion Database ID
+                    </label>
+                    <input
+                      type="text"
+                      value={settingsForm.notion_database_id}
+                      onChange={(e) => setSettingsForm({ ...settingsForm, notion_database_id: e.target.value })}
+                      className="w-full px-4 py-2 border rounded-lg font-mono text-sm"
+                      placeholder={currentUser.notion_configured ? `現在の設定: ${currentUser.notion_database_id}` : "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      NotionデータベースURLの最後の部分（32文字）
+                    </p>
+                    {currentUser.notion_configured && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        💡 空欄のまま保存すると既存の設定を保持します。
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                    <p className="text-sm text-blue-800">
+                      <strong>💡 ヒント:</strong> Notionデータベースには以下の列が必要です：
+                      <br />• 単語 (Title), 翻訳 (Text), 解説 (Text), 例文 (Text), タグ (Multi-select)
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {error && (
+                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+                  {error}
+                </div>
+              )}
+            </div>
+
+            <div className="p-6 border-t bg-gray-50 flex gap-3">
+              <button
+                onClick={handleSaveSettings}
+                disabled={loading}
+                className="flex-1 bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Check className="w-5 h-5" />}
+                保存
+              </button>
+              <button
+                onClick={() => {
+                  setShowSettingsModal(false);
+                  setError('');
+                }}
+                disabled={loading}
+                className="flex-1 bg-gray-200 py-3 rounded-lg hover:bg-gray-300 disabled:opacity-50"
+              >
+                キャンセル
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Credits Modal */}
+      {showCreditsModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b flex items-center justify-between sticky top-0 bg-white">
+              <h2 className="text-2xl font-bold flex items-center gap-2">
+                <Coins className="w-6 h-6 text-yellow-500" />
+                AIポイント管理
+              </h2>
+              <button
+                onClick={() => setShowCreditsModal(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6">
+              {/* Credits Balance */}
+              <div className="bg-gradient-to-r from-yellow-400 to-yellow-500 text-white rounded-lg p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-yellow-100 mb-1">現在の残高</p>
+                    <p className="text-4xl font-bold">{aiCredits} ポイント</p>
+                  </div>
+                  <button
+                    onClick={() => setShowRechargeModal(true)}
+                    className="bg-white text-yellow-600 px-6 py-3 rounded-lg hover:bg-yellow-50 transition flex items-center gap-2 font-semibold"
+                  >
+                    <CreditCard className="w-5 h-5" />
+                    チャージ
+                  </button>
+                </div>
+              </div>
+
+              {/* AI Operations Costs */}
+              <div>
+                <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                  <Sparkles className="w-5 h-5" />
+                  AI操作の料金表
+                </h3>
+                <div className="bg-gray-50 rounded-lg overflow-hidden">
+                  <table className="w-full">
+                    <thead className="bg-gray-200">
+                      <tr>
+                        <th className="text-left px-4 py-3 text-sm font-semibold">操作</th>
+                        <th className="text-left px-4 py-3 text-sm font-semibold">説明</th>
+                        <th className="text-right px-4 py-3 text-sm font-semibold">消費ポイント</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {creditsCosts.map((cost, index) => (
+                        <tr key={index} className="hover:bg-gray-100">
+                          <td className="px-4 py-3 font-medium">{cost.description}</td>
+                          <td className="px-4 py-3 text-sm text-gray-600">
+                            {cost.operation === 'GENERATE_QUESTIONS' && '履歴書に基づいて面接問題を生成'}
+                            {cost.operation === 'EVALUATE_ANSWER' && '回答の質を分析・評価'}
+                            {cost.operation === 'FOLLOW_UP_QUESTION' && '深掘り追問を生成'}
+                            {cost.operation === 'FOLLOW_UP_EVALUATION' && '追問の回答を評価'}
+                            {cost.operation === 'ANALYZE_VOCABULARY' && '単語の翻訳・解説・例文を生成'}
+                            {cost.operation === 'IMPORT_DOCUMENT' && '文書から面接問題を抽出'}
+                            {cost.operation === 'ANALYZE_QUESTION' && '標準答案・技巧・摘要を生成'}
+                            {cost.operation === 'PARSE_RESUME' && '履歴書から情報を抽出'}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <span className="inline-flex items-center gap-1 bg-yellow-100 text-yellow-800 px-3 py-1 rounded-full text-sm font-semibold">
+                              <Coins className="w-4 h-4" />
+                              {cost.cost}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Usage History */}
+              <div>
+                <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                  <History className="w-5 h-5" />
+                  使用履歴
+                </h3>
+                <div className="bg-gray-50 rounded-lg max-h-96 overflow-y-auto">
+                  {creditsHistory.length === 0 ? (
+                    <div className="text-center py-8 text-gray-500">
+                      まだ使用履歴がありません
+                    </div>
+                  ) : (
+                    <div className="divide-y">
+                      {creditsHistory.map((record) => (
+                        <div key={record.id} className="px-4 py-3 hover:bg-gray-100">
+                          <div className="flex items-center justify-between">
+                            <div className="flex-1">
+                              <div className="font-medium">
+                                {creditsCosts.find(c => c.operation === record.operation_type)?.description || record.operation_type}
+                              </div>
+                              <div className="text-sm text-gray-600 mt-1">{record.description}</div>
+                              <div className="text-xs text-gray-400 mt-1">
+                                {new Date(record.created_at).toLocaleString('ja-JP')}
+                              </div>
+                            </div>
+                            <div className="text-right ml-4">
+                              <div className={`text-lg font-semibold ${record.credits_cost > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                {record.credits_cost > 0 ? '-' : '+'}{Math.abs(record.credits_cost)}
+                              </div>
+                              <div className="text-xs text-gray-500">
+                                {record.credits_before} → {record.credits_after}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="p-6 border-t bg-gray-50">
+              <button
+                onClick={() => setShowCreditsModal(false)}
+                className="w-full bg-gray-200 py-3 rounded-lg hover:bg-gray-300"
+              >
+                閉じる
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Recharge Modal */}
+      {showRechargeModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full">
+            <div className="p-6 border-b flex items-center justify-between">
+              <h2 className="text-2xl font-bold flex items-center gap-2">
+                <CreditCard className="w-6 h-6" />
+                ポイントチャージ
+              </h2>
+              <button
+                onClick={() => {
+                  setShowRechargeModal(false);
+                  setError('');
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="p-6">
+              <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <p className="text-sm text-blue-800">
+                  <strong>💡 開発環境での充值：</strong> 以下のボタンをクリックして直接ポイントをチャージできます。
+                  本番環境では決済システムと連携します。
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                {[
+                  { amount: 100, price: '¥1', bonus: 0, popular: false },
+                  { amount: 500, price: '¥5', bonus: 100, popular: false },
+                  { amount: 1000, price: '¥10', bonus: 300, popular: true },
+                  { amount: 3000, price: '¥30', bonus: 1200, popular: false },
+                  { amount: 5000, price: '¥50', bonus: 2500, popular: false },
+                ].map((pkg, index) => (
+                  <button
+                    key={index}
+                    onClick={() => handleRecharge(pkg.amount + pkg.bonus)}
+                    disabled={loading}
+                    className={`relative p-4 rounded-lg border-2 transition hover:shadow-lg disabled:opacity-50 ${
+                      pkg.popular
+                        ? 'border-yellow-500 bg-yellow-50'
+                        : 'border-gray-200 hover:border-yellow-400'
+                    }`}
+                  >
+                    {pkg.popular && (
+                      <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-yellow-500 text-white text-xs px-3 py-1 rounded-full font-semibold">
+                        人気
+                      </div>
+                    )}
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-gray-800 mb-1">{pkg.price}</div>
+                      <div className="flex items-center justify-center gap-1 text-yellow-600 mb-2">
+                        <Coins className="w-5 h-5" />
+                        <span className="text-xl font-semibold">{pkg.amount}</span>
+                        <span className="text-sm">ポイント</span>
+                      </div>
+                      {pkg.bonus > 0 && (
+                        <div className="text-xs text-green-600 font-semibold">
+                          + {pkg.bonus} ボーナス
+                        </div>
+                      )}
+                    </div>
+                  </button>
+                ))}
+              </div>
+
+              {error && (
+                <div className="mt-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+                  {error}
+                </div>
+              )}
+            </div>
+
+            <div className="p-6 border-t bg-gray-50">
+              <button
+                onClick={() => {
+                  setShowRechargeModal(false);
+                  setError('');
+                }}
+                className="w-full bg-gray-200 py-3 rounded-lg hover:bg-gray-300"
+              >
+                キャンセル
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast Notification */}
+      {toast && (
+        <div 
+          className={`fixed top-4 right-4 z-[9999] px-6 py-3 rounded-lg shadow-lg flex items-center gap-3 animate-fade-in ${
+            toast.type === 'success' ? 'bg-green-500 text-white' :
+            toast.type === 'error' ? 'bg-red-500 text-white' :
+            toast.type === 'warning' ? 'bg-yellow-500 text-white' :
+            'bg-blue-500 text-white'
+          }`}
+        >
+          {toast.type === 'success' && <Check className="w-5 h-5" />}
+          {toast.type === 'error' && <X className="w-5 h-5" />}
+          <span className="font-medium">{toast.message}</span>
         </div>
       )}
     </div>

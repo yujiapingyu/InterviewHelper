@@ -41,6 +41,9 @@ export async function initDatabase() {
         username VARCHAR(100),
         avatar_url VARCHAR(500),
         target_language VARCHAR(10) DEFAULT 'ja',
+        ai_credits INT DEFAULT 100,
+        notion_api_key VARCHAR(500),
+        notion_database_id VARCHAR(100),
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX idx_email (email)
@@ -170,6 +173,23 @@ export async function initDatabase() {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
         INDEX idx_token (token)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+
+    // AI Credits Usage Log
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS ai_credits_log (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        operation_type VARCHAR(50) NOT NULL,
+        credits_cost INT NOT NULL,
+        credits_before INT NOT NULL,
+        credits_after INT NOT NULL,
+        description TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        INDEX idx_user_id (user_id),
+        INDEX idx_created_at (created_at)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
 

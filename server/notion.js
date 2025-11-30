@@ -3,35 +3,44 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-// Initialize Notion client
-const notion = process.env.NOTION_API_KEY 
-  ? new Client({ auth: process.env.NOTION_API_KEY })
-  : null;
-
-const databaseId = process.env.NOTION_DATABASE_ID;
+/**
+ * 为指定用户创建Notion客户端
+ * @param {Object} userNotionConfig - 用户的Notion配置 {notion_api_key, notion_database_id}
+ * @returns {Object} {client, databaseId}
+ */
+function createUserNotionClient(userNotionConfig) {
+  if (!userNotionConfig?.notion_api_key || !userNotionConfig?.notion_database_id) {
+    return { client: null, databaseId: null };
+  }
+  
+  const client = new Client({ auth: userNotionConfig.notion_api_key });
+  return {
+    client,
+    databaseId: userNotionConfig.notion_database_id
+  };
+}
 
 /**
- * Check if Notion integration is configured
+ * Check if Notion integration is configured for a user
+ * @param {Object} userNotionConfig - {notion_api_key, notion_database_id}
  */
-export function isNotionEnabled() {
-  return !!(notion && databaseId);
+export function isNotionEnabled(userNotionConfig) {
+  return !!(userNotionConfig?.notion_api_key && userNotionConfig?.notion_database_id);
 }
 
 /**
  * Sync vocabulary note to Notion database
  * @param {Object} vocabularyData - Vocabulary data to sync
+ * @param {Object} userNotionConfig - User's Notion configuration
  * @returns {Promise<Object>} Notion page response
  */
-export async function syncVocabularyToNotion(vocabularyData) {
+export async function syncVocabularyToNotion(vocabularyData, userNotionConfig) {
   console.log('🔵 syncVocabularyToNotion called with:', { word: vocabularyData.word });
-  console.log('🔵 Notion enabled:', isNotionEnabled());
-  console.log('🔵 NOTION_API_KEY exists:', !!process.env.NOTION_API_KEY);
-  console.log('🔵 NOTION_DATABASE_ID:', process.env.NOTION_DATABASE_ID);
   
-  if (!isNotionEnabled()) {
-    console.log('⚠️ Notion integration not configured, skipping sync');
-    console.log('⚠️ notion client:', !!notion);
-    console.log('⚠️ databaseId:', databaseId);
+  const { client: notion, databaseId } = createUserNotionClient(userNotionConfig);
+  
+  if (!notion || !databaseId) {
+    console.log('⚠️ Notion integration not configured for this user, skipping sync');
     return null;
   }
 
@@ -128,10 +137,13 @@ export async function syncVocabularyToNotion(vocabularyData) {
 /**
  * Delete vocabulary from Notion
  * @param {string} notionPageId - Notion page ID to delete
+ * @param {Object} userNotionConfig - User's Notion configuration
  * @returns {Promise<Object>} Notion response
  */
-export async function deleteVocabularyFromNotion(notionPageId) {
-  if (!isNotionEnabled() || !notionPageId) {
+export async function deleteVocabularyFromNotion(notionPageId, userNotionConfig) {
+  const { client: notion } = createUserNotionClient(userNotionConfig);
+  
+  if (!notion || !notionPageId) {
     return null;
   }
 
@@ -153,10 +165,13 @@ export async function deleteVocabularyFromNotion(notionPageId) {
 /**
  * Search for a vocabulary word in Notion database
  * @param {string} word - Word to search for
+ * @param {Object} userNotionConfig - User's Notion configuration
  * @returns {Promise<Object|null>} Notion page if found
  */
-export async function findVocabularyInNotion(word) {
-  if (!isNotionEnabled()) {
+export async function findVocabularyInNotion(word, userNotionConfig) {
+  const { client: notion, databaseId } = createUserNotionClient(userNotionConfig);
+  
+  if (!notion || !databaseId) {
     return null;
   }
 

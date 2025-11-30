@@ -149,19 +149,50 @@ IMPORTANT: Questions MUST reference the candidate's actual skills/experience fro
 
 ${nativeLevel}
 
-For model_answer_ja, make it sound EXTREMELY NATURAL and SPOKEN:
-- Use SHORT sentences (like real speech, not essays)
-- Add natural hesitations and thought processes: "そうですね..."、"えーと"、"まあ"
-- Use conversational connectors: ～んですけど、～んで、～ので
-- Repeat key points naturally (people do this when speaking)
-- Use simple vocabulary that foreigners actually know
-- Include phrases like: "やっぱり"、"なんか"、"ちょっと"、"結構"
-- Avoid ANY literary or written-style expressions
-- Make it sound like someone explaining something to a friend in business context
-${isNonNative ? '- Sound like a competent non-native speaker (clear but not perfect, natural but not native)' : '- Use natural native-level expressions'}
+For model_answer_ja, you MUST strictly follow PREP structure:
+
+**MANDATORY PREP FORMAT:**
+You MUST use exactly this structure with clear markers:
+
+【Point】
+[1-2 sentences stating your main conclusion/position]
+
+【Reason】  
+[2-3 sentences explaining WHY, using ～ので、～から、～ため]
+
+【Example】
+[2-3 sentences giving concrete example, starting with 例えば]
+
+【Point】
+[1-2 sentences restating conclusion]
+
+**CRITICAL RULES:**
+1. MUST include all 4 sections with 【】markers
+2. Each section MUST be on new line after marker
+3. Use COMPLETE sentences (not choppy fragments)
+4. AVOID "あの" (max 1-2 in entire answer)
+5. Use connectors: ～んです、～ので、～から
+6. Sound like N2-N1 speaker (fluent, professional)
+7. Can start with "そうですね" ONCE before 【Point】
+
+**CORRECT Example:**
+"【Point】
+私はチームで協力して成果を上げることを大切にしています。
+
+【Reason】
+なぜなら、一人では限界があるので、チームメンバーと協力することで、お互いの強みを活かせるからです。また、多様な視点を取り入れることで、より良い解決策を見つけることができます。
+
+【Example】
+例えば、前職では新機能の開発プロジェクトで、フロントエンドとバックエンドのエンジニアが密接に協力しました。週次ミーティングで進捗を共有し、課題を一緒に解決した結果、予定より2週間早くリリースできました。
+
+【Point】
+このように、チームワークを大切にする文化で働きたいと思っています。"
+
+**WRONG (missing markers or structure):**
+"私はチームで協力して...なぜなら...例えば..."
 
 Return ONLY a JSON array (no markdown, no code blocks):
-[{"question_ja":"Japanese question referencing their skills","question_zh":"Chinese translation","model_answer_ja":"【Point】natural spoken conclusion\n【Reason】conversational reason using ～と思います\n【Example】example with natural speech patterns\n【Point】natural conclusion","tips_ja":["tip1","tip2","tip3"],"summary":"brief English summary"}]`;
+[{"question_ja":"Japanese question","question_zh":"Chinese translation","model_answer_ja":"【Point】\n...\n\n【Reason】\n...\n\n【Example】\n...\n\n【Point】\n...","tips_ja":["tip1","tip2","tip3"],"summary":"brief summary"}]`;
 
   try {
     const response = await fetch(
@@ -223,13 +254,15 @@ Return ONLY a JSON array (no markdown, no code blocks):
  */
 export async function evaluateAnswer(userAnswer, question, isNonNative = true) {
   const nativeContext = isNonNative
-    ? `CRITICAL: This candidate is a NON-NATIVE Japanese speaker.
-- Judge based on COMMUNICATION SUCCESS, not native perfection
-- Minor grammar mistakes are FINE if the message is clear
-- In correctedVersion, make it sound like a REAL foreigner speaking (not a textbook)
-- Use SIMPLE, SHORT sentences that foreigners actually use
-- Keep the candidate's speaking style but improve clarity
-- Don't make it sound too perfect or native-like (unrealistic for non-natives)`
+    ? `CRITICAL: This candidate is a NON-NATIVE Japanese speaker at N2-N1 level.
+- Judge based on COMMUNICATION SUCCESS and CONTENT QUALITY, not native perfection
+- Minor grammar mistakes are FINE if the message is clear and professional
+- In correctedVersion, improve clarity while keeping it natural for N2-N1 level
+- Use COMPLETE, WELL-FORMED sentences (not choppy fragments)
+- Sound CONVERSATIONAL but FLUENT (like a competent speaker, not beginner)
+- Follow PREP structure: Point → Reason → Example → Point
+- AVOID excessive "あの" (max 1-2 times)
+- Use natural connectors: ～んです、～ので、～から`
     : `This candidate is a NATIVE Japanese speaker. Evaluate at native professional level.`;
 
   const prompt = `You are a professional Japanese interviewer. Evaluate this candidate's answer.
@@ -243,10 +276,10 @@ Candidate's Answer: ${userAnswer}
 Provide detailed feedback in JSON format (no markdown, no code blocks):
 {
   "score": 0-100,
-  "feedback": "Overall assessment in Japanese (100 chars max, very encouraging for non-natives)",
-  "strengths": ["strength1", "strength2"],
-  "improvements": ["improvement1", "improvement2"],
-  "correctedVersion": "Improved version that sounds like a REAL NON-NATIVE speaker in an interview${isNonNative ? '. Use SHORT simple sentences. Use basic connectors like ～んです、～ので、～けど. Include natural spoken fillers like そうですね、まあ、ちょっと. Sound conversational and natural, NOT textbook-perfect. Keep it at upper-intermediate level.' : '. Use spoken forms like ～と思います、～んです. Add natural speech patterns.'}"
+  "feedback": "Overall assessment in Japanese (150 chars max, encouraging and constructive)",
+  "strengths": ["specific strength 1", "specific strength 2", "specific strength 3"],
+  "improvements": ["specific improvement 1", "specific improvement 2"],
+  "correctedVersion": "${isNonNative ? 'MUST use PREP structure with 【Point】【Reason】【Example】【Point】 markers on separate lines. Each section 2-3 COMPLETE sentences. Use ～んです、～ので、～から. NO choppy fragments. NO excessive あの. Sound like fluent N2-N1 speaker. Format: 【Point】\n[conclusion sentences]\n\n【Reason】\n[reason sentences with なぜなら/ので]\n\n【Example】\n[example with 例えば]\n\n【Point】\n[summary]' : 'Professional version with PREP structure and native expressions'}"
 }`;
 
   try {
@@ -383,7 +416,7 @@ Evaluate the answer and return JSON (no markdown):
   "strengths": ["strength1", "strength2"],
   "improvements": ["improvement1", "improvement2"],
   "needsMoreFollowUp": true/false,
-  "correctedVersion": "Improved version that sounds like a REAL NON-NATIVE speaker${isNonNative ? '. SHORT sentences. Simple grammar. Natural spoken fillers (そうですね、まあ). Conversational connectors (～んです、～けど). Sound like actual speech, NOT textbook.' : '. Use spoken forms like ～と思います、～んです.'}"
+  "correctedVersion": "${isNonNative ? 'MUST follow PREP format: 【Point】\n[conclusion]\n\n【Reason】\n[why, using ～ので/～から]\n\n【Example】\n[concrete example with 例えば]\n\n【Point】\n[summary]. Use COMPLETE sentences, natural connectors (～んです、～ので). Sound like competent N2-N1 speaker, NOT beginner. Minimal あの (max 1-2).' : 'Professional version with PREP structure'}"
 }`;
 
   try {
@@ -601,19 +634,51 @@ ${additionalPrompt ? `Additional Requirements: ${additionalPrompt}` : ''}
 
 ${nativeLevel}
 
-For model_answer_ja, make it EXTREMELY CONVERSATIONAL and REAL:
-- Use VERY SHORT sentences (one idea per sentence)
-- Add realistic hesitations: "そうですね..."、"えーと"、"まあ"
-- Use simple connectors: ～んです、～んですけど、～ので、～から
-- Include thinking phrases: "つまり"、"要するに"、"例えば"
-- Use casual business words: やっぱり、ちょっと、結構、なんか
-- Repeat important points (people do this naturally)
-- Make it sound like explaining to a colleague, NOT giving a speech
-${isNonNative ? '- Sound like a competent foreigner (clear and professional, but NOT native-perfect)' : '- Use natural native-level expressions'}
+For model_answer_ja, you MUST strictly follow PREP structure:
+
+**MANDATORY PREP FORMAT:**
+You MUST use exactly this structure with clear markers:
+
+【Point】
+[1-2 sentences stating your main conclusion/position]
+
+【Reason】
+[2-3 sentences explaining WHY, using ～ので、～から、～ため]
+
+【Example】
+[2-3 sentences giving concrete example, starting with 例えば]
+
+【Point】
+[1-2 sentences restating conclusion]
+
+**CRITICAL RULES:**
+1. MUST include all 4 sections with 【】markers
+2. Each section MUST be on new line after marker
+3. Use COMPLETE sentences (not choppy fragments)
+4. AVOID "あの" (max 1-2 in entire answer)
+5. Use connectors: ～んです、～ので、～から
+6. Sound like N2-N1 speaker (fluent, professional)
+7. Can start with "そうですね" ONCE before 【Point】
+
+**CORRECT Example:**
+"【Point】
+私はチームで協力して成果を上げることを大切にしています。
+
+【Reason】
+なぜなら、一人では限界があるので、チームメンバーと協力することで、お互いの強みを活かせるからです。また、多様な視点を取り入れることで、より良い解決策を見つけることができます。
+
+【Example】
+例えば、前職では新機能の開発プロジェクトで、フロントエンドとバックエンドのエンジニアが密接に協力しました。週次ミーティングで進捗を共有し、課題を一緒に解決した結果、予定より2週間早くリリースできました。
+
+【Point】
+このように、チームワークを大切にする文化で働きたいと思っています。"
+
+**WRONG (missing markers or structure):**
+"私はチームで協力して...なぜなら...例えば..."
 
 Return ONLY a JSON object (no markdown, no code blocks):
 {
-  "model_answer_ja": "【Point】conclusion\n【Reason】reason\n【Example】example\n【Point】conclusion",
+  "model_answer_ja": "【Point】\n...\n\n【Reason】\n...\n\n【Example】\n...\n\n【Point】\n...",
   "tips_ja": ["tip1", "tip2", "tip3"],
   "summary": "brief English summary"
 }`;

@@ -140,6 +140,13 @@ export const auth = {
       return null;
     }
   },
+  
+  async updateSettings(settings) {
+    return fetchWithAuth('/auth/settings', {
+      method: 'PUT',
+      body: JSON.stringify(settings),
+    });
+  },
 };
 
 // Questions API
@@ -390,5 +397,23 @@ export const vocabularyAPI = {
   
   async getNotionStatus() {
     return fetchWithAuth('/notion/status');
+  },
+};
+
+// AI Credits API
+export const creditsAPI = {
+  async getCosts() {
+    return fetchWithAuth('/credits/costs');
+  },
+  
+  async getHistory() {
+    return fetchWithAuth('/credits/history');
+  },
+  
+  async recharge(amount, paymentMethod = 'manual') {
+    return fetchWithAuth('/credits/recharge', {
+      method: 'POST',
+      body: JSON.stringify({ amount, payment_method: paymentMethod }),
+    });
   },
 };

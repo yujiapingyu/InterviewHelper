@@ -6,6 +6,7 @@ import pool, { initDatabase } from './db.js';
 import { parseResume, generateQuestions, evaluateAnswer, generateFollowUpQuestion, evaluateFollowUpAnswer, analyzeVocabulary } from './gemini.js';
 import { extractTextFromFile } from './fileParser.js';
 import { isNotionEnabled, syncVocabularyToNotion, deleteVocabularyFromNotion } from './notion.js';
+import { requireCredits, chargeCredits, AI_COSTS, AI_COST_DESCRIPTIONS, checkCredits, getCreditsHistory, addCredits } from './credits.js';
 
 const app = express();
 const PORT = 3002;
@@ -53,7 +54,10 @@ async function authenticate(req, res, next) {
 
   try {
     const [rows] = await pool.query(
-      "SELECT * FROM sessions WHERE token = ? AND expires_at > NOW()",
+      `SELECT s.user_id, u.ai_credits, u.notion_api_key, u.notion_database_id 
+       FROM sessions s
+       JOIN users u ON s.user_id = u.id
+       WHERE s.token = ? AND s.expires_at > NOW()`,
       [token]
     );
     const session = rows[0];
@@ -63,6 +67,11 @@ async function authenticate(req, res, next) {
     }
 
     req.userId = session.user_id;
+    req.userCredits = session.ai_credits;
+    req.userNotionConfig = {
+      notion_api_key: session.notion_api_key,
+      notion_database_id: session.notion_database_id
+    };
     next();
   } catch (error) {
     console.error('Auth error:', error);
@@ -142,12 +151,131 @@ app.post('/api/auth/logout', authenticate, async (req, res) => {
 app.get('/api/auth/me', authenticate, async (req, res) => {
   try {
     const [rows] = await pool.query(
-      'SELECT id, email, username, avatar_url, target_language, created_at FROM users WHERE id = ?',
+      'SELECT id, email, username, avatar_url, target_language, ai_credits, notion_api_key, notion_database_id, created_at FROM users WHERE id = ?',
       [req.userId]
     );
-    res.json(rows[0]);
+    const user = rows[0];
+    
+    // 返回Notion配置状态（不返回完整密钥）
+    const response = {
+      ...user,
+      notion_configured: !!(user.notion_api_key && user.notion_database_id),
+      notion_api_key: user.notion_api_key ? user.notion_api_key.substring(0, 10) + '...' : null,
+      notion_database_id: user.notion_database_id ? user.notion_database_id.substring(0, 8) + '...' : null
+    };
+    
+    res.json(response);
   } catch (error) {
     console.error('Get user error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update user settings (including Notion configuration)
+app.put('/api/auth/settings', authenticate, async (req, res) => {
+  const { notion_api_key, notion_database_id, username, target_language } = req.body;
+  
+  try {
+    const updates = [];
+    const values = [];
+    
+    if (notion_api_key !== undefined) {
+      updates.push('notion_api_key = ?');
+      values.push(notion_api_key || null);
+    }
+    
+    if (notion_database_id !== undefined) {
+      updates.push('notion_database_id = ?');
+      values.push(notion_database_id || null);
+    }
+    
+    if (username !== undefined) {
+      updates.push('username = ?');
+      values.push(username);
+    }
+    
+    if (target_language !== undefined) {
+      updates.push('target_language = ?');
+      values.push(target_language);
+    }
+    
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+    
+    values.push(req.userId);
+    
+    await pool.query(
+      `UPDATE users SET ${updates.join(', ')} WHERE id = ?`,
+      values
+    );
+    
+    // 返回更新后的用户信息
+    const [rows] = await pool.query(
+      'SELECT id, email, username, avatar_url, target_language, ai_credits, notion_api_key, notion_database_id, created_at FROM users WHERE id = ?',
+      [req.userId]
+    );
+    const user = rows[0];
+    
+    const response = {
+      ...user,
+      notion_configured: !!(user.notion_api_key && user.notion_database_id),
+      notion_api_key: user.notion_api_key ? user.notion_api_key.substring(0, 10) + '...' : null,
+      notion_database_id: user.notion_database_id ? user.notion_database_id.substring(0, 8) + '...' : null
+    };
+    
+    res.json(response);
+  } catch (error) {
+    console.error('Update settings error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== AI CREDITS ROUTES =====
+
+// Get AI costs information
+app.get('/api/credits/costs', (req, res) => {
+  const costs = Object.keys(AI_COSTS).map(key => ({
+    operation: key,
+    cost: AI_COSTS[key],
+    description: AI_COST_DESCRIPTIONS[key]
+  }));
+  res.json(costs);
+});
+
+// Get credits history
+app.get('/api/credits/history', authenticate, async (req, res) => {
+  try {
+    const history = await getCreditsHistory(req.userId);
+    res.json(history);
+  } catch (error) {
+    console.error('Get credits history error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin: Add credits (充值 - 后续可扩展为支付集成)
+app.post('/api/credits/recharge', authenticate, async (req, res) => {
+  const { amount, payment_method = 'manual' } = req.body;
+  
+  if (!amount || amount <= 0) {
+    return res.status(400).json({ error: 'Invalid amount' });
+  }
+  
+  try {
+    // TODO: 这里可以集成支付系统验证
+    // 目前作为手动充值接口
+    
+    const result = await addCredits(req.userId, amount, `Recharge via ${payment_method}`);
+    
+    res.json({
+      success: true,
+      credits_added: amount,
+      credits_after: result.creditsAfter,
+      message: `${amount}ポイントをチャージしました`
+    });
+  } catch (error) {
+    console.error('Recharge credits error:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -305,7 +433,7 @@ app.delete('/api/questions/:id', authenticate, async (req, res) => {
 });
 
 // Generate questions with AI
-app.post('/api/questions/generate', authenticate, async (req, res) => {
+app.post('/api/questions/generate', authenticate, requireCredits('GENERATE_QUESTIONS'), async (req, res) => {
   const { category = 'HR', count = 3, resumeInfo = null } = req.body;
   
   try {
@@ -318,6 +446,9 @@ app.post('/api/questions/generate', authenticate, async (req, res) => {
     
     // Generate questions using AI
     const newQuestions = await generateQuestions(resumeInfo, existingSummaries, category, count);
+    
+    // Charge credits after successful generation
+    await chargeCredits(req.userId, 'GENERATE_QUESTIONS', `Generated ${count} ${category} questions`);
     
     // Insert questions into database
     const insertedQuestions = [];
@@ -350,7 +481,7 @@ app.post('/api/questions/generate', authenticate, async (req, res) => {
 });
 
 // Import questions from document
-app.post('/api/questions/import', authenticate, upload.single('file'), async (req, res) => {
+app.post('/api/questions/import', authenticate, requireCredits('IMPORT_DOCUMENT'), upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
@@ -368,6 +499,9 @@ app.post('/api/questions/import', authenticate, upload.single('file'), async (re
     if (extractedQuestions.length === 0) {
       return res.status(400).json({ error: 'No questions found in the document' });
     }
+
+    // Charge credits after successful extraction
+    await chargeCredits(req.userId, 'IMPORT_DOCUMENT', `Imported ${extractedQuestions.length} questions from ${req.file.originalname}`);
 
     // Insert questions into database (without answers/tips initially)
     const insertedQuestions = [];
@@ -399,7 +533,7 @@ app.post('/api/questions/import', authenticate, upload.single('file'), async (re
 });
 
 // Generate complete analysis for a question
-app.post('/api/questions/:id/analyze', authenticate, async (req, res) => {
+app.post('/api/questions/:id/analyze', authenticate, requireCredits('ANALYZE_QUESTION'), async (req, res) => {
   const { additionalPrompt = '', generateAnswer = true } = req.body;
   
   try {
@@ -419,6 +553,9 @@ app.post('/api/questions/:id/analyze', authenticate, async (req, res) => {
       additionalPrompt,
       true // isNonNative
     );
+
+    // Charge credits after successful generation
+    await chargeCredits(req.userId, 'ANALYZE_QUESTION', `Analyzed question: ${question.question_ja.substring(0, 30)}...`);
 
     // Update question with analysis
     const updateFields = {
@@ -674,12 +811,15 @@ app.get('/api/resumes', authenticate, async (req, res) => {
   }
 });
 
-app.post('/api/resumes', authenticate, async (req, res) => {
+app.post('/api/resumes', authenticate, requireCredits('PARSE_RESUME'), async (req, res) => {
   const { filename, content } = req.body;
   
   try {
     // Parse resume with AI
     const parsed = await parseResume(content);
+    
+    // Charge credits after successful parsing
+    await chargeCredits(req.userId, 'PARSE_RESUME', `Parsed resume: ${filename}`);
     
     console.log('📋 Parsed resume data:', {
       skills: parsed.skills?.slice(0, 3),
@@ -712,7 +852,7 @@ app.post('/api/resumes', authenticate, async (req, res) => {
 });
 
 // New route: Upload resume file (with server-side parsing)
-app.post('/api/resumes/upload', authenticate, upload.single('file'), async (req, res) => {
+app.post('/api/resumes/upload', authenticate, requireCredits('PARSE_RESUME'), upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
@@ -732,6 +872,9 @@ app.post('/api/resumes/upload', authenticate, upload.single('file'), async (req,
 
     // Parse resume with AI
     const parsed = await parseResume(content);
+    
+    // Charge credits after successful parsing
+    await chargeCredits(req.userId, 'PARSE_RESUME', `Parsed resume file: ${filename}`);
     
     console.log('📋 Parsed resume data:', {
       skills: parsed.skills?.slice(0, 3),
@@ -801,7 +944,7 @@ app.get('/api/conversations/:questionId', authenticate, async (req, res) => {
 });
 
 // Create new conversation
-app.post('/api/conversations', authenticate, async (req, res) => {
+app.post('/api/conversations', authenticate, requireCredits('EVALUATE_ANSWER'), async (req, res) => {
   const { question_id, initial_answer } = req.body;
   
   try {
@@ -814,6 +957,9 @@ app.post('/api/conversations', authenticate, async (req, res) => {
 
     // Get initial AI feedback
     const feedback = await evaluateAnswer(initial_answer, question.question_ja);
+    
+    // Charge credits after successful evaluation
+    await chargeCredits(req.userId, 'EVALUATE_ANSWER', `Evaluated answer for question: ${question.question_ja.substring(0, 30)}...`);
     
     const conversationTurns = [{
       type: 'initial',
@@ -843,7 +989,7 @@ app.post('/api/conversations', authenticate, async (req, res) => {
 });
 
 // Generate follow-up question
-app.post('/api/conversations/:conversationId/follow-up', authenticate, async (req, res) => {
+app.post('/api/conversations/:conversationId/follow-up', authenticate, requireCredits('FOLLOW_UP_QUESTION'), async (req, res) => {
   try {
     const [conversationRows] = await pool.query(
       `SELECT c.*, q.question_ja 
@@ -874,6 +1020,9 @@ app.post('/api/conversations/:conversationId/follow-up', authenticate, async (re
       conversationHistory
     );
     
+    // Charge credits after successful generation
+    await chargeCredits(req.userId, 'FOLLOW_UP_QUESTION', 'Generated follow-up question');
+    
     // Add follow-up to conversation
     turns.push({
       type: 'followup',
@@ -900,7 +1049,7 @@ app.post('/api/conversations/:conversationId/follow-up', authenticate, async (re
 });
 
 // Answer follow-up question
-app.post('/api/conversations/:conversationId/answer', authenticate, async (req, res) => {
+app.post('/api/conversations/:conversationId/answer', authenticate, requireCredits('FOLLOW_UP_EVALUATION'), async (req, res) => {
   const { answer } = req.body;
   
   try {
@@ -930,6 +1079,9 @@ app.post('/api/conversations/:conversationId/answer', authenticate, async (req, 
       lastTurn.followUpQuestion,
       answer
     );
+    
+    // Charge credits after successful evaluation
+    await chargeCredits(req.userId, 'FOLLOW_UP_EVALUATION', 'Evaluated follow-up answer');
     
     // Update last turn with answer and feedback
     lastTurn.userAnswer = answer;
@@ -1045,7 +1197,7 @@ app.post('/api/favorites', authenticate, async (req, res) => {
 // ===== VOCABULARY ROUTES =====
 
 // Analyze word/phrase with AI
-app.post('/api/vocabulary/analyze', authenticate, async (req, res) => {
+app.post('/api/vocabulary/analyze', authenticate, requireCredits('ANALYZE_VOCABULARY'), async (req, res) => {
   const { word } = req.body;
   
   if (!word || !word.trim()) {
@@ -1054,6 +1206,10 @@ app.post('/api/vocabulary/analyze', authenticate, async (req, res) => {
 
   try {
     const analysis = await analyzeVocabulary(word.trim());
+    
+    // Charge credits after successful analysis
+    await chargeCredits(req.userId, 'ANALYZE_VOCABULARY', `Analyzed vocabulary: ${word.trim()}`);
+    
     res.json(analysis);
   } catch (error) {
     console.error('Vocabulary analysis error:', error);
@@ -1085,8 +1241,8 @@ app.post('/api/vocabulary', authenticate, async (req, res) => {
     if (note.example_sentences) note.example_sentences = JSON.parse(note.example_sentences);
     if (note.tags) note.tags = JSON.parse(note.tags);
     
-    // Sync to Notion if enabled
-    if (isNotionEnabled()) {
+    // Sync to Notion if enabled (using user's config)
+    if (isNotionEnabled(req.userNotionConfig)) {
       try {
         const notionResponse = await syncVocabularyToNotion({
           word,
@@ -1094,7 +1250,7 @@ app.post('/api/vocabulary', authenticate, async (req, res) => {
           explanation,
           example_sentences,
           tags
-        });
+        }, req.userNotionConfig);
         
         if (notionResponse) {
           // Update local database with Notion page ID
@@ -1153,10 +1309,10 @@ app.delete('/api/vocabulary/:id', authenticate, async (req, res) => {
       return res.status(404).json({ error: 'Vocabulary note not found' });
     }
     
-    // Delete from Notion if synced
-    if (note.notion_page_id && isNotionEnabled()) {
+    // Delete from Notion if synced (using user's config)
+    if (note.notion_page_id && isNotionEnabled(req.userNotionConfig)) {
       try {
-        await deleteVocabularyFromNotion(note.notion_page_id);
+        await deleteVocabularyFromNotion(note.notion_page_id, req.userNotionConfig);
       } catch (notionError) {
         console.error('Failed to delete from Notion:', notionError);
         // Continue with local deletion even if Notion fails
@@ -1178,16 +1334,16 @@ app.delete('/api/vocabulary/:id', authenticate, async (req, res) => {
 
 // Check Notion integration status
 app.get('/api/notion/status', authenticate, (req, res) => {
-  const enabled = isNotionEnabled();
-  const hasApiKey = !!process.env.NOTION_API_KEY;
-  const hasDatabaseId = !!process.env.NOTION_DATABASE_ID;
+  const enabled = isNotionEnabled(req.userNotionConfig);
+  const hasApiKey = !!req.userNotionConfig?.notion_api_key;
+  const hasDatabaseId = !!req.userNotionConfig?.notion_database_id;
   
   res.json({ 
     enabled,
     hasApiKey,
     hasDatabaseId,
-    apiKeyPrefix: process.env.NOTION_API_KEY?.substring(0, 10) + '...',
-    databaseIdPrefix: process.env.NOTION_DATABASE_ID?.substring(0, 10) + '...',
+    apiKeyPrefix: hasApiKey ? req.userNotionConfig.notion_api_key.substring(0, 10) + '...' : null,
+    databaseIdPrefix: hasDatabaseId ? req.userNotionConfig.notion_database_id.substring(0, 10) + '...' : null,
     message: enabled
       ? 'Notion integration is configured and active' 
       : `Notion integration is not configured. Missing: ${!hasApiKey ? 'NOTION_API_KEY ' : ''}${!hasDatabaseId ? 'NOTION_DATABASE_ID' : ''}`
@@ -1198,11 +1354,8 @@ app.get('/api/notion/status', authenticate, (req, res) => {
 app.listen(PORT, async () => {
   console.log(`✅ API Server running on http://localhost:${PORT}`);
   console.log(`📍 Database: MySQL (pool connection)`);
-  console.log(`📝 Notion Integration: ${isNotionEnabled() ? '✅ Enabled' : '❌ Disabled'}`);
-  if (isNotionEnabled()) {
-    console.log(`   API Key: ${process.env.NOTION_API_KEY?.substring(0, 15)}...`);
-    console.log(`   Database: ${process.env.NOTION_DATABASE_ID?.substring(0, 15)}...`);
-  }
+  console.log(`💎 AI Credits System: ✅ Enabled`);
+  console.log(`📝 Notion Integration: Per-user configuration`);
   
   // Initialize database tables
   try {
