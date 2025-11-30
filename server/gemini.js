@@ -511,6 +511,28 @@ Requirements:
 4. Return ONLY the questions, NO answers or other fields yet
 5. Categorize each question as either "HR" or "Tech" based on content
 
+Categorization Guide:
+- **HR** (Human Resources / Soft Skills):
+  * 志望動機、価値観 (motivation, values)
+  * 自己紹介、経歴 (self-intro, background - focus on personality/achievements, NOT technical details)
+  * キャリアプラン、目標 (career plans, goals)
+  * 長所、短所 (strengths, weaknesses - personality traits)
+  * チームワーク、コミュニケーション (teamwork, communication)
+  * ストレス対処、困難の克服 (stress handling, overcoming challenges)
+  * 会社・日本を選んだ理由 (why this company/Japan)
+  * 文化適応、働き方 (cultural fit, work style)
+  * Example keywords: なぜ、どうして、経験、感じる、考える、性格、人間関係
+
+- **Tech** (Technical / Professional Skills):
+  * 具体的な技術スタック (Java, Python, React, SQL, AWS, etc.)
+  * システム設計、アーキテクチャ (system design, architecture)
+  * データベース、分散システム (database, distributed systems)
+  * コーディング、アルゴリズム (coding, algorithms)
+  * プロジェクト経験（技術的詳細） (project experience with technical details)
+  * パフォーマンス最適化、障害対応 (performance optimization, troubleshooting)
+  * 開発手法、ツール (development methodologies, tools)
+  * Example keywords: 技術、実装、設計、開発、コード、API、データベース、アルゴリズム
+
 Return ONLY a JSON array (no markdown, no code blocks):
 [{"question_ja":"Japanese question","question_zh":"Chinese original or translation","category":"HR or Tech"}]
 

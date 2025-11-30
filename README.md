@@ -33,7 +33,10 @@
 - 分类：HR（软技能）/ Tech（技术）
 - PREP法模板：Point → Reason → Example → Point
 - AI生成题目（带去重）
+- **文档导入**：从PDF/Word/Text/Markdown文档批量导入问题
+- **AI问题解析**：自动生成标准答案、回答技巧、问题摘要
 - 增删改查管理
+- **非母语者优化**：生成适合外国人的口语化回答（非教科书式）
 
 ### 4️⃣ AI 辅导系统
 - 回答质量评估（自然度、商务性）
@@ -352,6 +355,153 @@ AI 会从以下角度评估你的回答：
 
 ## 🔧 开发说明
 
+### 本地开发
+
+1. **安装依赖**
+```bash
+npm install
+```
+
+2. **配置环境变量**
+```bash
+cp .env.example .env
+# 编辑 .env 文件，填入你的配置
+```
+
+3. **启动开发服务器**
+```bash
+# 同时启动前端和后端
+npm run dev:all
+
+# 或分别启动
+npm run dev      # 前端 (Vite) - http://localhost:3000
+npm run server   # 后端 (Express) - http://localhost:3002
+```
+
+4. **数据库初始化**
+   - 首次启动时，后端会自动创建所有必要的表
+   - 检查终端日志确认数据库连接成功
+
+### 测试
+
+#### 1. 文档导入功能测试
+
+创建测试文档 `test-questions.txt`:
+```
+1. 自己紹介をお願いします。
+2. 为什么想在日本工作？
+3. あなたの強みと弱みを教えてください。
+4. Describe your experience with distributed systems.
+5. データベースの設計経験について教えてください。
+```
+
+测试步骤：
+1. 登录系统
+2. 进入「質問管理」
+3. 点击「文書導入」按钮
+4. 上传 `test-questions.txt`
+5. 验证：
+   - ✅ 中文问题自动翻译成日文
+   - ✅ AI自动判断HR/Tech分类
+   - ✅ 问题导入后可编辑/删除
+
+#### 2. AI问题解析功能测试
+
+1. 选择任意导入的问题
+2. 点击紫色「✨」按钮（AI解析）
+3. 可选操作：
+   - 勾选/取消「標準回答を生成する」
+   - 输入额外提示（如：「初心者向けに簡単な表現で」）
+4. 点击「解析を開始」
+5. 验证：
+   - ✅ 生成口语化的标准答案（短句、自然填充词）
+   - ✅ 生成实用的回答技巧
+   - ✅ 生成英文摘要
+   - ✅ 回答风格像真实外国人说话（非教科书）
+
+#### 3. 问题分类测试
+
+AI如何区分HR和Tech问题：
+
+**HR问题特征**（软技能）：
+- 志望動機、価値観
+- 自我介绍、职业规划
+- 团队合作、沟通能力
+- 压力处理、文化适应
+- 为什么选择日本/公司
+- 优缺点、性格特点
+
+**Tech问题特征**（技术）：
+- 具体技术栈（Java、Python、React等）
+- 系统设计、架构决策
+- 数据库、分布式系统
+- 编码实践、算法
+- 项目经验（技术细节）
+- 性能优化、故障处理
+
+测试文档 `test-categorization.txt`:
+```
+自己紹介をお願いします。                    → HR
+Javaでのマルチスレッド経験を教えてください。  → Tech
+チームで困難を乗り越えた経験は？              → HR
+RESTful APIの設計原則について説明してください。→ Tech
+なぜこの会社を選びましたか？                  → HR
+```
+
+#### 4. 非母语者优化测试
+
+对比测试：生成的回答应该像这样
+
+**❌ 书面化（过于正式）**:
+```
+私は〇〇大学を卒業後、5年間ソフトウェア開発の仕事に従事してまいりました。
+人とコミュニケーションを取りながら、問題を解決することに魅力を感じております。
+```
+
+**✅ 口语化（实际外国人会说的）**:
+```
+そうですね...私は〇〇大学を卒業して、その後5年間ソフトウェア開発をやってきたんです。
+まあ、人と話しながら問題を解決するのが、やっぱり一番やりがいを感じるんですね。
+```
+
+特征检查：
+- ✅ 短句（一句话一个想法）
+- ✅ 自然犹豫（そうですね...、えーと、まあ）
+- ✅ 简单连接词（～んです、～けど、～ので）
+- ✅ 口语词汇（やっぱり、ちょっと、結構）
+- ✅ 思考过程词（つまり、要するに、例えば）
+
+#### 5. API端点测试
+
+使用curl或Postman测试：
+
+```bash
+# 文档导入
+curl -X POST http://localhost:3002/api/questions/import \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -F "file=@test-questions.txt"
+
+# AI问题解析
+curl -X POST http://localhost:3002/api/questions/1/analyze \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"generateAnswer": true, "additionalPrompt": "初心者向けに"}'
+```
+
+### 常见问题
+
+**Q: 导入的中文问题没有翻译成日文？**
+A: 检查Gemini API密钥是否正确配置，查看后端日志中的AI响应
+
+**Q: AI生成的回答还是太书面？**
+A: 这是AI模型的特性，已通过详细的prompt指导优化，多生成几次选择最自然的
+
+**Q: 问题分类不准确？**
+A: AI基于问题内容判断，可以手动编辑问题的category字段修正
+
+**Q: 文档导入失败？**
+A: 支持的格式：PDF、DOCX、TXT、MD。检查文件编码是否为UTF-8
+
 ### 项目结构
 
 ```
@@ -361,25 +511,37 @@ InterviewHelper/
 │   ├── main.jsx            # 入口文件
 │   ├── index.css           # 全局样式
 │   └── utils/
-│       ├── database.js     # 数据库操作（localStorage）
-│       └── gemini.js       # Gemini API 调用
+│       ├── api.js          # API调用封装
+│       └── gemini.js       # 前端Gemini工具
+├── server/
+│   ├── api.js              # Express后端服务器
+│   ├── db.js               # MySQL数据库连接
+│   ├── gemini.js           # Gemini AI功能
+│   ├── fileParser.js       # 文档解析（PDF/Word/Text）
+│   ├── notion.js           # Notion集成
+│   └── utils.js            # 工具函数
 ├── scripts/
-│   └── init-db.js          # SQLite 初始化脚本（可选）
-├── index.html
+│   └── init-db.js          # 数据库初始化脚本（已废弃）
+├── .env                    # 环境变量（不提交）
+├── .env.example            # 环境变量模板
 ├── package.json
 ├── vite.config.js
 ├── tailwind.config.js
-└── .env.example
+└── README.md
 ```
 
 ### API 调用
 
-所有 Gemini API 调用都在 `src/utils/gemini.js` 中：
+后端Gemini API调用 (`server/gemini.js`)：
 
-- `getAIFeedback()`: 分析回答
-- `transcribeAudio()`: 语音转文字
-- `generateQuestions()`: 生成新题目
 - `parseResume()`: 解析简历
+- `generateQuestions()`: 生成面试题
+- `evaluateAnswer()`: 评估回答
+- `generateFollowUpQuestion()`: 生成追问
+- `evaluateFollowUpAnswer()`: 评估追问回答
+- `analyzeVocabulary()`: 分析单词/短语
+- `extractQuestionsFromDocument()`: 从文档提取问题
+- `generateQuestionAnalysis()`: 生成问题完整解析
 
 ## 🤝 贡献
 
