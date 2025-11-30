@@ -258,13 +258,6 @@ InterviewHelper/
    - 在用户设置中填入 `NOTION_API_KEY` 和 `NOTION_DATABASE_ID`
    - 保存后自动同步单词到个人Notion数据库
 
-4. ~~全局配置（不推荐）~~：配置 `.env` 文件
-   ```env
-   # 所有用户共享同一个Notion数据库（不推荐）
-   NOTION_API_KEY=secret_xxxxxxxxx
-   NOTION_DATABASE_ID=xxxxxxxxxxxxxxxxx
-   ```
-
 ---
 
 ## ⚠️ 注意事项
