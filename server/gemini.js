@@ -126,13 +126,16 @@ Reference work experience ONLY in terms of achievements, team dynamics, or chall
 Ask questions that directly relate to the TECHNOLOGIES and EXPERIENCE in their resume.`;
 
   const nativeLevel = isNonNative 
-    ? `IMPORTANT: This is for a NON-NATIVE Japanese speaker (学習者レベル).
-For model_answer_ja:
-- Use JLPT N2-N1 level vocabulary and grammar (clear and learnable for non-natives)
-- Keep sentences moderately simple while maintaining business politeness
-- Avoid overly complex or literary expressions
-- Use common, practical phrases that a non-native speaker can actually learn and use
-- Focus on natural spoken patterns but at a learnable level`
+    ? `CRITICAL: This is for a NON-NATIVE Japanese speaker in a REAL interview (NOT a textbook).
+For model_answer_ja, make it sound like an ACTUAL foreigner speaking:
+- Use simple, SHORT sentences (non-natives don't speak in long complex sentences)
+- Use VERY casual business Japanese that foreigners actually use
+- Include small grammar imperfections or simpler structures that are still acceptable
+- Use ～と思います、～んです、～ています (basic forms non-natives actually master)
+- Avoid complex grammar like ～において、～に際して、～を踏まえ、～に鑑み
+- Sound like someone THINKING and SPEAKING, not reciting memorized text
+- Use repetition and clarification phrases like "つまり", "要するに", "例えば"
+- Keep it at upper-intermediate level, NOT native perfection`
     : `This is for a NATIVE Japanese speaker. Use natural native-level expressions.`;
 
   const prompt = `Generate ${count} Japanese interview ${category} questions SPECIFICALLY tailored to this candidate's background. 
@@ -146,13 +149,16 @@ IMPORTANT: Questions MUST reference the candidate's actual skills/experience fro
 
 ${nativeLevel}
 
-For model_answer_ja, write in NATURAL CONVERSATIONAL BUSINESS JAPANESE:
-- Use spoken forms like ～と思います、～だと考えております、～んです instead of formal written forms
-- Add natural fillers and connectors: そうですね、実は、特に、やはり
-- Use です/ます style but keep it conversational, not stiff
-- Avoid overly formal written expressions like ～である、～において
-- Make it sound like a person actually speaking in an interview, not reading from a script
-${isNonNative ? '- Use clear N2-N1 level expressions that non-natives can learn and use' : '- Use natural native-level expressions'}
+For model_answer_ja, make it sound EXTREMELY NATURAL and SPOKEN:
+- Use SHORT sentences (like real speech, not essays)
+- Add natural hesitations and thought processes: "そうですね..."、"えーと"、"まあ"
+- Use conversational connectors: ～んですけど、～んで、～ので
+- Repeat key points naturally (people do this when speaking)
+- Use simple vocabulary that foreigners actually know
+- Include phrases like: "やっぱり"、"なんか"、"ちょっと"、"結構"
+- Avoid ANY literary or written-style expressions
+- Make it sound like someone explaining something to a friend in business context
+${isNonNative ? '- Sound like a competent non-native speaker (clear but not perfect, natural but not native)' : '- Use natural native-level expressions'}
 
 Return ONLY a JSON array (no markdown, no code blocks):
 [{"question_ja":"Japanese question referencing their skills","question_zh":"Chinese translation","model_answer_ja":"【Point】natural spoken conclusion\n【Reason】conversational reason using ～と思います\n【Example】example with natural speech patterns\n【Point】natural conclusion","tips_ja":["tip1","tip2","tip3"],"summary":"brief English summary"}]`;
@@ -217,12 +223,13 @@ Return ONLY a JSON array (no markdown, no code blocks):
  */
 export async function evaluateAnswer(userAnswer, question, isNonNative = true) {
   const nativeContext = isNonNative
-    ? `IMPORTANT: This candidate is a NON-NATIVE Japanese speaker (学習者).
-- Be encouraging and constructive in feedback
-- Focus on communication effectiveness, not perfect grammar
-- In correctedVersion, use JLPT N2-N1 level expressions (clear and learnable)
-- Avoid overly native or complex expressions in the correction
-- Highlight what they did well before suggesting improvements`
+    ? `CRITICAL: This candidate is a NON-NATIVE Japanese speaker.
+- Judge based on COMMUNICATION SUCCESS, not native perfection
+- Minor grammar mistakes are FINE if the message is clear
+- In correctedVersion, make it sound like a REAL foreigner speaking (not a textbook)
+- Use SIMPLE, SHORT sentences that foreigners actually use
+- Keep the candidate's speaking style but improve clarity
+- Don't make it sound too perfect or native-like (unrealistic for non-natives)`
     : `This candidate is a NATIVE Japanese speaker. Evaluate at native professional level.`;
 
   const prompt = `You are a professional Japanese interviewer. Evaluate this candidate's answer.
@@ -236,10 +243,10 @@ Candidate's Answer: ${userAnswer}
 Provide detailed feedback in JSON format (no markdown, no code blocks):
 {
   "score": 0-100,
-  "feedback": "Overall assessment in Japanese (100 chars max, encouraging tone for non-natives)",
+  "feedback": "Overall assessment in Japanese (100 chars max, very encouraging for non-natives)",
   "strengths": ["strength1", "strength2"],
   "improvements": ["improvement1", "improvement2"],
-  "correctedVersion": "Improved version in NATURAL CONVERSATIONAL BUSINESS JAPANESE${isNonNative ? ' at N2-N1 level (clear and learnable)' : ''}. Use spoken forms like ～と思います、～んです. Add natural speech patterns. Make it sound like someone actually speaking in an interview."
+  "correctedVersion": "Improved version that sounds like a REAL NON-NATIVE speaker in an interview${isNonNative ? '. Use SHORT simple sentences. Use basic connectors like ～んです、～ので、～けど. Include natural spoken fillers like そうですね、まあ、ちょっと. Sound conversational and natural, NOT textbook-perfect. Keep it at upper-intermediate level.' : '. Use spoken forms like ～と思います、～んです. Add natural speech patterns.'}"
 }`;
 
   try {
@@ -355,10 +362,10 @@ Return ONLY a JSON object (no markdown, no code blocks):
  */
 export async function evaluateFollowUpAnswer(originalQuestion, followUpQuestion, userAnswer, conversationHistory = [], isNonNative = true) {
   const nativeContext = isNonNative
-    ? `IMPORTANT: This candidate is a NON-NATIVE Japanese speaker (学習者).
-- Be encouraging and constructive
-- Focus on communication effectiveness
-- In correctedVersion, use N2-N1 level expressions (clear and learnable)`
+    ? `CRITICAL: This candidate is a NON-NATIVE Japanese speaker.
+- Judge based on communication success, not perfection
+- In correctedVersion, make it sound like a REAL foreigner speaking
+- Use SHORT simple sentences, basic grammar, natural fillers`
     : `This candidate is a NATIVE Japanese speaker.`;
 
   const prompt = `You are evaluating a candidate's answer to a follow-up question in a Japanese interview.
@@ -372,11 +379,11 @@ Candidate's Answer: ${userAnswer}
 Evaluate the answer and return JSON (no markdown):
 {
   "score": 0-100,
-  "feedback": "Japanese feedback on their answer (encouraging for non-natives)",
+  "feedback": "Japanese feedback on their answer (very encouraging for non-natives)",
   "strengths": ["strength1", "strength2"],
   "improvements": ["improvement1", "improvement2"],
   "needsMoreFollowUp": true/false,
-  "correctedVersion": "Improved version in NATURAL CONVERSATIONAL BUSINESS JAPANESE${isNonNative ? ' at N2-N1 level' : ''}. Use spoken forms like ～と思います、～んです."
+  "correctedVersion": "Improved version that sounds like a REAL NON-NATIVE speaker${isNonNative ? '. SHORT sentences. Simple grammar. Natural spoken fillers (そうですね、まあ). Conversational connectors (～んです、～けど). Sound like actual speech, NOT textbook.' : '. Use spoken forms like ～と思います、～んです.'}"
 }`;
 
   try {
@@ -555,12 +562,13 @@ If no questions are found, return an empty array: []`;
  */
 export async function generateQuestionAnalysis(questionText, category = 'HR', additionalPrompt = '', isNonNative = true) {
   const nativeLevel = isNonNative 
-    ? `IMPORTANT: This is for a NON-NATIVE Japanese speaker (学習者レベル). 
-- model_answer_ja should be at JLPT N2-N1 level, NOT native-level complexity
-- Use clear, common vocabulary and grammar patterns
-- Avoid overly complex or literary expressions
-- Keep sentences moderately simple while maintaining business politeness
-- Focus on practical, learnable phrases that a non-native speaker can actually use`
+    ? `CRITICAL: This is for a NON-NATIVE Japanese speaker in a REAL interview.
+- model_answer_ja should sound like an ACTUAL foreigner speaking (NOT a textbook)
+- Use SHORT, SIMPLE sentences (foreigners don't speak in complex paragraphs)
+- Use basic grammar and common vocabulary only
+- Include natural spoken fillers and hesitations
+- Make mistakes acceptable if the meaning is clear
+- Sound like someone THINKING while speaking, not reciting`
     : `This is for a NATIVE Japanese speaker. Use natural native-level expressions.`;
 
   const prompt = `Generate a complete analysis for this interview question.
@@ -571,12 +579,15 @@ ${additionalPrompt ? `Additional Requirements: ${additionalPrompt}` : ''}
 
 ${nativeLevel}
 
-For model_answer_ja, write in NATURAL CONVERSATIONAL BUSINESS JAPANESE:
-- Use spoken forms like ～と思います、～だと考えております、～んです
-- Add natural fillers: そうですね、実は、特に、やはり
-- Use です/ます style but keep it conversational, not stiff
-- Make it sound like someone actually speaking in an interview
-${isNonNative ? '- Use N2-N1 level vocabulary and grammar (clear and learnable for non-natives)' : '- Use natural native-level expressions'}
+For model_answer_ja, make it EXTREMELY CONVERSATIONAL and REAL:
+- Use VERY SHORT sentences (one idea per sentence)
+- Add realistic hesitations: "そうですね..."、"えーと"、"まあ"
+- Use simple connectors: ～んです、～んですけど、～ので、～から
+- Include thinking phrases: "つまり"、"要するに"、"例えば"
+- Use casual business words: やっぱり、ちょっと、結構、なんか
+- Repeat important points (people do this naturally)
+- Make it sound like explaining to a colleague, NOT giving a speech
+${isNonNative ? '- Sound like a competent foreigner (clear and professional, but NOT native-perfect)' : '- Use natural native-level expressions'}
 
 Return ONLY a JSON object (no markdown, no code blocks):
 {
