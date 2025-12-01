@@ -88,6 +88,11 @@ async function authenticate(req, res, next) {
 // ===== AUTH ROUTES =====
 
 app.post('/api/auth/register', async (req, res) => {
+  // Check if registration is allowed
+  if (process.env.ALLOW_REGISTRATION === 'false') {
+    return res.status(403).json({ error: 'Registration is currently disabled' });
+  }
+
   const { email, password, username } = req.body;
 
   try {
