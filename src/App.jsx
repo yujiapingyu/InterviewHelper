@@ -597,7 +597,7 @@ function App() {
       
       setFloatingSearchPos({
         x: rect.right + 10,
-        y: rect.top + window.scrollY - 5
+        y: rect.top - 5
       });
     } else {
       setSelectedText('');
@@ -2567,10 +2567,10 @@ function App() {
       {floatingSearchPos && selectedText && (
         <div
           style={{
-            position: 'absolute',
+            position: 'fixed',
             left: `${floatingSearchPos.x}px`,
             top: `${floatingSearchPos.y}px`,
-            zIndex: 1000
+            zIndex: 9999
           }}
           className="animate-fade-in"
         >
