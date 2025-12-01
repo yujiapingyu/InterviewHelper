@@ -23,7 +23,13 @@ const upload = multer({
   }
 });
 
-app.use(cors());
+// CORS configuration
+app.use(cors({
+  origin: true, // Allow all origins (or specify your frontend URL)
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(express.json({ limit: '50mb' }));
 
 // Helper function to convert Date to MySQL datetime format
