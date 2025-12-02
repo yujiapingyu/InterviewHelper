@@ -8,6 +8,7 @@ import {
 import ReactMarkdown from 'react-markdown';
 import { auth, questionsAPI, practiceAPI, favoritesAPI, resumeAPI, conversationAPI, vocabularyAPI, creditsAPI } from './utils/api';
 import { getAIFeedback, startSpeechRecognition } from './utils/gemini';
+import AdminPanel from './AdminPanel';
 
 function App() {
   const [currentUser, setCurrentUser] = useState(null);
@@ -158,7 +159,14 @@ function App() {
     try {
       const user = await auth.login(email, password);
       setCurrentUser(user);
-      setCurrentView('home');
+      
+      // Check if user is admin
+      if (user.role === 'admin') {
+        setCurrentView('admin');
+      } else {
+        setCurrentView('home');
+      }
+      
       await loadUserData();
       setEmail('');
       setPassword('');
@@ -310,31 +318,36 @@ function App() {
     }
   };
 
-  const handleAlipayPayment = async (packageId) => {
+  const handleRedeemCard = async (cardCode) => {
     setLoading(true);
     setError('');
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3002/api'}/payment/alipay/create`, {
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3002/api'}/cards/redeem`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
         },
-        body: JSON.stringify({ package_id: packageId })
+        body: JSON.stringify({ card_code: cardCode })
       });
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.error || 'Payment creation failed');
+        throw new Error(error.error || 'Card redemption failed');
       }
 
       const data = await response.json();
       
-      // Redirect to alipay payment page
-      window.location.href = data.payment_url;
+      showToast(`充值成功！获得 ${data.credits} 点积分`, 'success');
+      
+      // Refresh user info
+      await fetchUserInfo();
+      
+      setLoading(false);
+      setShowRechargeModal(false);
     } catch (err) {
       setError(err.message);
-      showToast('支付创建失败: ' + err.message, 'error');
+      showToast('兑换失败: ' + err.message, 'error');
       setLoading(false);
     }
   };
@@ -1103,6 +1116,12 @@ function App() {
   }
 
   // Main App (Logged in)
+  
+  // Admin Panel
+  if (currentView === 'admin' && currentUser?.role === 'admin') {
+    return <AdminPanel user={currentUser} onLogout={handleLogout} />;
+  }
+  
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -2864,15 +2883,26 @@ function App() {
               {/* User Settings */}
               <div>
                 <h3 className="text-lg font-semibold mb-3">ユーザー情報</h3>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">ユーザー名</label>
-                  <input
-                    type="text"
-                    value={settingsForm.username}
-                    onChange={(e) => setSettingsForm({ ...settingsForm, username: e.target.value })}
-                    className="w-full px-4 py-2 border rounded-lg"
-                    placeholder="山田太郎"
-                  />
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">メールアドレス</label>
+                    <input
+                      type="email"
+                      value={currentUser.email}
+                      disabled
+                      className="w-full px-4 py-2 border rounded-lg bg-gray-50 text-gray-600 cursor-not-allowed"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">ユーザー名</label>
+                    <input
+                      type="text"
+                      value={settingsForm.username}
+                      onChange={(e) => setSettingsForm({ ...settingsForm, username: e.target.value })}
+                      className="w-full px-4 py-2 border rounded-lg"
+                      placeholder="山田太郎"
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -3122,8 +3152,8 @@ function App() {
       {/* Recharge Modal */}
       {showRechargeModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full">
-            <div className="p-6 border-b flex items-center justify-between">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b flex items-center justify-between sticky top-0 bg-white z-10">
               <h2 className="text-2xl font-bold flex items-center gap-2">
                 <CreditCard className="w-6 h-6" />
                 ポイントチャージ
@@ -3142,49 +3172,86 @@ function App() {
             <div className="p-6">
               <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
                 <p className="text-sm text-blue-800">
-                  <strong>💡 開発環境での充值：</strong> 以下のボタンをクリックして直接ポイントをチャージできます。
-                  本番環境では決済システムと連携します。
+                  <strong>💡 充值方式：</strong> 请输入您购买的点卡激活码，系统将自动充值对应的积分到您的账户。
                 </p>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                {[
-                  { amount: 100, price: '¥1', bonus: 0, popular: false },
-                  { amount: 500, price: '¥5', bonus: 100, popular: false },
-                  { amount: 1000, price: '¥10', bonus: 300, popular: true },
-                  { amount: 3000, price: '¥30', bonus: 1200, popular: false },
-                  { amount: 5000, price: '¥50', bonus: 2500, popular: false },
-                ].map((pkg, index) => (
-                  <button
-                    key={index}
-                    onClick={() => handleRecharge(pkg.amount + pkg.bonus)}
-                    disabled={loading}
-                    className={`relative p-4 rounded-lg border-2 transition hover:shadow-lg disabled:opacity-50 ${
-                      pkg.popular
-                        ? 'border-yellow-500 bg-yellow-50'
-                        : 'border-gray-200 hover:border-yellow-400'
-                    }`}
-                  >
-                    {pkg.popular && (
-                      <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-yellow-500 text-white text-xs px-3 py-1 rounded-full font-semibold">
-                        人気
-                      </div>
-                    )}
-                    <div className="text-center">
-                      <div className="text-2xl font-bold text-gray-800 mb-1">{pkg.price}</div>
-                      <div className="flex items-center justify-center gap-1 text-yellow-600 mb-2">
-                        <Coins className="w-5 h-5" />
-                        <span className="text-xl font-semibold">{pkg.amount}</span>
-                        <span className="text-sm">ポイント</span>
-                      </div>
-                      {pkg.bonus > 0 && (
-                        <div className="text-xs text-green-600 font-semibold">
-                          + {pkg.bonus} ボーナス
-                        </div>
-                      )}
+              {/* 点卡兑换表单 */}
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  点卡激活码
+                </label>
+                <form onSubmit={(e) => {
+                  e.preventDefault();
+                  const cardCode = e.target.cardCode.value.trim();
+                  if (cardCode) {
+                    handleRedeemCard(cardCode);
+                  }
+                }}>
+                  <div className="flex gap-3">
+                    <input
+                      type="text"
+                      name="cardCode"
+                      placeholder="CARD-2024-XXXX-XXXX"
+                      className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 font-mono text-sm"
+                      disabled={loading}
+                      required
+                    />
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="px-6 py-3 bg-yellow-500 text-white font-semibold rounded-lg hover:bg-yellow-600 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                    >
+                      {loading ? '兑换中...' : '兑换'}
+                    </button>
+                  </div>
+                </form>
+                {error && (
+                  <p className="mt-2 text-sm text-red-600">{error}</p>
+                )}
+              </div>
+
+              {/* 点卡面值说明 */}
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-6">
+                <h3 className="font-semibold text-gray-800 mb-3 flex items-center gap-2">
+                  <Coins className="w-4 h-4" />
+                  点卡面值
+                </h3>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {[
+                    { credits: 100, label: '基础卡' },
+                    { credits: 300, label: '标准卡' },
+                    { credits: 500, label: '专业卡' },
+                    { credits: 1000, label: '企业卡' }
+                  ].map((card) => (
+                    <div key={card.credits} className="bg-white rounded p-3 border border-gray-200 text-center">
+                      <div className="text-xs text-gray-500 mb-1">{card.label}</div>
+                      <div className="text-lg font-bold text-yellow-600">{card.credits}</div>
+                      <div className="text-xs text-gray-500">ポイント</div>
                     </div>
-                  </button>
-                ))}
+                  ))}
+                </div>
+              </div>
+
+              {/* 测试充值（开发环境） */}
+              <div className="border-t pt-4">
+                <details className="cursor-pointer">
+                  <summary className="text-sm text-gray-600 hover:text-gray-800 font-medium mb-2">
+                    🔧 开发测试（直接充值，无需支付）
+                  </summary>
+                  <div className="grid grid-cols-3 gap-2 mt-3">
+                    {[100, 500, 1000].map((amount) => (
+                      <button
+                        key={amount}
+                        onClick={() => handleRecharge(amount)}
+                        disabled={loading}
+                        className="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded text-sm disabled:opacity-50"
+                      >
+                        +{amount}
+                      </button>
+                    ))}
+                  </div>
+                </details>
               </div>
 
               {error && (
@@ -3194,7 +3261,7 @@ function App() {
               )}
             </div>
 
-            <div className="p-6 border-t bg-gray-50">
+            <div className="p-6 border-t bg-gray-50 sticky bottom-0">
               <button
                 onClick={() => {
                   setShowRechargeModal(false);
@@ -3224,6 +3291,13 @@ function App() {
           <span className="font-medium">{toast.message}</span>
         </div>
       )}
+      
+      {/* Footer */}
+      <footer className="bg-white border-t mt-auto">
+        <div className="max-w-7xl mx-auto px-4 py-4 text-center text-sm text-gray-500">
+          © 2025 日本面接練習器. All rights reserved.
+        </div>
+      </footer>
     </div>
   );
 }

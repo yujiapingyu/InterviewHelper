@@ -7,7 +7,7 @@ import { parseResume, generateQuestions, evaluateAnswer, generateFollowUpQuestio
 import { extractTextFromFile } from './fileParser.js';
 import { isNotionEnabled, syncVocabularyToNotion, deleteVocabularyFromNotion } from './notion.js';
 import { requireCredits, chargeCredits, AI_COSTS, AI_COST_DESCRIPTIONS, checkCredits, getCreditsHistory, addCredits } from './credits.js';
-import { createAlipayOrder, verifyAlipaySign, RECHARGE_PACKAGES } from './alipay.js';
+import { generateCards, validateCardCodeFormat } from './cardGenerator.js';
 
 const app = express();
 const PORT = 3002;
@@ -61,7 +61,7 @@ async function authenticate(req, res, next) {
 
   try {
     const [rows] = await pool.query(
-      `SELECT s.user_id, u.ai_credits, u.notion_api_key, u.notion_database_id 
+      `SELECT s.user_id, u.ai_credits, u.notion_api_key, u.notion_database_id, u.role 
        FROM sessions s
        JOIN users u ON s.user_id = u.id
        WHERE s.token = ? AND s.expires_at > NOW()`,
@@ -75,6 +75,7 @@ async function authenticate(req, res, next) {
 
     req.userId = session.user_id;
     req.userCredits = session.ai_credits;
+    req.userRole = session.role;
     req.userNotionConfig = {
       notion_api_key: session.notion_api_key,
       notion_database_id: session.notion_database_id
@@ -84,6 +85,14 @@ async function authenticate(req, res, next) {
     console.error('Auth error:', error);
     return res.status(500).json({ error: 'Authentication failed' });
   }
+}
+
+// Admin middleware
+function requireAdmin(req, res, next) {
+  if (req.userRole !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+  next();
 }
 
 // ===== AUTH ROUTES =====
@@ -163,7 +172,7 @@ app.post('/api/auth/logout', authenticate, async (req, res) => {
 app.get('/api/auth/me', authenticate, async (req, res) => {
   try {
     const [rows] = await pool.query(
-      'SELECT id, email, username, avatar_url, target_language, ai_credits, notion_api_key, notion_database_id, created_at FROM users WHERE id = ?',
+      'SELECT id, email, username, avatar_url, target_language, ai_credits, notion_api_key, notion_database_id, role, created_at FROM users WHERE id = ?',
       [req.userId]
     );
     const user = rows[0];
@@ -292,168 +301,311 @@ app.post('/api/credits/recharge', authenticate, async (req, res) => {
   }
 });
 
-// ===== PAYMENT ROUTES =====
+// ===== CARD RECHARGE ROUTES =====
 
-// Get recharge packages
-app.get('/api/payment/packages', (req, res) => {
-  res.json({ packages: RECHARGE_PACKAGES });
-});
-
-// Create alipay order
-app.post('/api/payment/alipay/create', authenticate, async (req, res) => {
-  const { package_id } = req.body;
+// Admin: Generate recharge cards
+app.post('/api/admin/cards/generate', authenticate, requireAdmin, async (req, res) => {
+  const { count, credits, expiry_days } = req.body;
   
   try {
-    // Find package
-    const pkg = RECHARGE_PACKAGES.find(p => p.id === package_id);
-    if (!pkg) {
-      return res.status(400).json({ error: 'Invalid package' });
+    if (!count || !credits) {
+      return res.status(400).json({ error: 'Count and credits are required' });
     }
-
-    // Generate order number
-    const orderNo = `ORDER_${Date.now()}_${req.userId}`;
     
-    // Save order to database
+    if (count < 1 || count > 1000) {
+      return res.status(400).json({ error: 'Count must be between 1 and 1000' });
+    }
+    
+    if (![100, 300, 500, 1000].includes(credits)) {
+      return res.status(400).json({ error: 'Invalid credits value' });
+    }
+    
+    // Generate cards
+    const cards = generateCards(count, credits, expiry_days);
+    
+    // Insert into database
+    const values = cards.map(card => [
+      card.card_code,
+      card.credits,
+      card.expires_at
+    ]);
+    
     await pool.query(
-      `INSERT INTO payment_orders (user_id, order_no, package_id, amount, credits, payment_method, status)
-       VALUES (?, ?, ?, ?, ?, 'alipay', 'pending')`,
-      [req.userId, orderNo, package_id, pkg.price, pkg.credits]
+      `INSERT INTO recharge_cards (card_code, credits, expires_at) VALUES ?`,
+      [values]
     );
-
-    // Create alipay payment URL
-    const paymentUrl = createAlipayOrder({
-      outTradeNo: orderNo,
-      totalAmount: pkg.price,
-      subject: pkg.name,
-      body: pkg.description
-    });
-
+    
     res.json({
       success: true,
-      order_no: orderNo,
-      payment_url: paymentUrl
+      count: cards.length,
+      cards: cards
     });
   } catch (error) {
-    console.error('Create alipay order error:', error);
+    console.error('Generate cards error:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// Alipay notify callback
-app.post('/api/payment/alipay/notify', async (req, res) => {
+// Admin: Get card list
+app.get('/api/admin/cards', authenticate, requireAdmin, async (req, res) => {
+  const { status, limit = 100 } = req.query;
+  
   try {
-    const params = req.body;
+    let query = 'SELECT * FROM recharge_cards';
+    const params = [];
     
-    // Verify signature
-    if (!verifyAlipaySign(params, params.sign)) {
-      console.error('Invalid alipay signature');
-      return res.send('fail');
+    if (status) {
+      query += ' WHERE status = ?';
+      params.push(status);
     }
+    
+    query += ' ORDER BY created_at DESC LIMIT ?';
+    params.push(parseInt(limit));
+    
+    const [cards] = await pool.query(query, params);
+    res.json({ cards });
+  } catch (error) {
+    console.error('Get cards error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
-    const {
-      out_trade_no,
-      trade_no,
-      trade_status
-    } = params;
+// Admin: Get card statistics
+app.get('/api/admin/cards/stats', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const [stats] = await pool.query(`
+      SELECT 
+        status,
+        COUNT(*) as count,
+        SUM(credits) as total_credits
+      FROM recharge_cards
+      GROUP BY status
+    `);
+    
+    res.json({ stats });
+  } catch (error) {
+    console.error('Get card stats error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
-    // Only process TRADE_SUCCESS
-    if (trade_status !== 'TRADE_SUCCESS') {
-      return res.send('success');
+// User: Redeem card
+app.post('/api/cards/redeem', authenticate, async (req, res) => {
+  const { card_code } = req.body;
+  
+  try {
+    // Validate format
+    if (!validateCardCodeFormat(card_code)) {
+      return res.status(400).json({ error: '点卡格式不正确' });
     }
-
-    // Check if order already processed
-    const [orders] = await pool.query(
-      'SELECT * FROM payment_orders WHERE order_no = ?',
-      [out_trade_no]
+    
+    // Get client IP
+    const clientIp = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    
+    // Check rate limit: max 10 redemptions per hour per IP
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    const [recentRedemptions] = await pool.query(
+      'SELECT COUNT(*) as count FROM recharge_cards WHERE used_ip = ? AND used_at > ?',
+      [clientIp, oneHourAgo]
     );
-
-    if (orders.length === 0) {
-      console.error('Order not found:', out_trade_no);
-      return res.send('fail');
-    }
-
-    const order = orders[0];
     
-    if (order.status === 'paid') {
-      // Already processed
-      return res.send('success');
+    if (recentRedemptions[0].count >= 10) {
+      return res.status(429).json({ error: '兑换过于频繁，请稍后再试' });
     }
-
+    
     // Start transaction
     const connection = await pool.getConnection();
     await connection.beginTransaction();
-
+    
     try {
-      // Update order status
-      await connection.query(
-        `UPDATE payment_orders 
-         SET status = 'paid', trade_no = ?, notify_data = ?, paid_at = NOW()
-         WHERE order_no = ?`,
-        [trade_no, JSON.stringify(params), out_trade_no]
+      // Lock and get card
+      const [cards] = await connection.query(
+        'SELECT * FROM recharge_cards WHERE card_code = ? FOR UPDATE',
+        [card_code]
       );
-
+      
+      if (cards.length === 0) {
+        await connection.rollback();
+        connection.release();
+        return res.status(404).json({ error: '点卡不存在' });
+      }
+      
+      const card = cards[0];
+      
+      // Check status
+      if (card.status !== 'unused') {
+        await connection.rollback();
+        connection.release();
+        return res.status(400).json({ error: '点卡已被使用' });
+      }
+      
+      // Check expiry
+      if (card.expires_at && new Date(card.expires_at) < new Date()) {
+        await connection.query(
+          'UPDATE recharge_cards SET status = ? WHERE id = ?',
+          ['expired', card.id]
+        );
+        await connection.commit();
+        connection.release();
+        return res.status(400).json({ error: '点卡已过期' });
+      }
+      
+      // Update card status
+      await connection.query(
+        `UPDATE recharge_cards 
+         SET status = 'used', used_by = ?, used_at = NOW(), used_ip = ?
+         WHERE id = ?`,
+        [req.userId, clientIp, card.id]
+      );
+      
       // Add credits to user
-      await addCredits(order.user_id, order.credits, `支付宝充值 - ${out_trade_no}`, connection);
-
+      await addCredits(req.userId, card.credits, `点卡充值 - ${card_code}`, connection);
+      
       await connection.commit();
       connection.release();
-
-      res.send('success');
+      
+      res.json({
+        success: true,
+        credits: card.credits,
+        message: '兑换成功'
+      });
     } catch (error) {
       await connection.rollback();
       connection.release();
       throw error;
     }
   } catch (error) {
-    console.error('Alipay notify error:', error);
-    res.send('fail');
-  }
-});
-
-// Alipay return callback
-app.get('/api/payment/alipay/return', async (req, res) => {
-  const { out_trade_no } = req.query;
-  
-  // Redirect to frontend success page
-  res.redirect(`${process.env.ALIPAY_RETURN_URL}?order_no=${out_trade_no}`);
-});
-
-// Check order status
-app.get('/api/payment/order/:orderNo', authenticate, async (req, res) => {
-  const { orderNo } = req.params;
-  
-  try {
-    const [orders] = await pool.query(
-      'SELECT * FROM payment_orders WHERE order_no = ? AND user_id = ?',
-      [orderNo, req.userId]
-    );
-
-    if (orders.length === 0) {
-      return res.status(404).json({ error: 'Order not found' });
-    }
-
-    res.json({ order: orders[0] });
-  } catch (error) {
-    console.error('Get order error:', error);
+    console.error('Redeem card error:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// Get payment history
-app.get('/api/payment/history', authenticate, async (req, res) => {
+// User: Get redemption history
+app.get('/api/cards/history', authenticate, async (req, res) => {
   try {
-    const [orders] = await pool.query(
-      `SELECT id, order_no, package_id, amount, credits, payment_method, status, paid_at, created_at
-       FROM payment_orders 
-       WHERE user_id = ?
-       ORDER BY created_at DESC
+    const [cards] = await pool.query(
+      `SELECT card_code, credits, used_at
+       FROM recharge_cards
+       WHERE used_by = ?
+       ORDER BY used_at DESC
        LIMIT 50`,
       [req.userId]
     );
-
-    res.json({ orders });
+    
+    res.json({ cards });
   } catch (error) {
-    console.error('Get payment history error:', error);
+    console.error('Get redemption history error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== ADMIN USER MANAGEMENT ROUTES =====
+
+// Get all users
+app.get('/api/admin/users', authenticate, requireAdmin, async (req, res) => {
+  const { page = 1, limit = 50, search = '' } = req.query;
+  const offset = (parseInt(page) - 1) * parseInt(limit);
+  
+  try {
+    let query = 'SELECT id, email, username, role, ai_credits, created_at FROM users';
+    let countQuery = 'SELECT COUNT(*) as total FROM users';
+    const params = [];
+    
+    if (search) {
+      query += ' WHERE email LIKE ? OR username LIKE ?';
+      countQuery += ' WHERE email LIKE ? OR username LIKE ?';
+      params.push(`%${search}%`, `%${search}%`);
+    }
+    
+    query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+    params.push(parseInt(limit), offset);
+    
+    const [users] = await pool.query(query, params);
+    
+    const countParams = search ? [`%${search}%`, `%${search}%`] : [];
+    const [countResult] = await pool.query(countQuery, countParams);
+    
+    res.json({
+      users,
+      total: countResult[0].total,
+      page: parseInt(page),
+      limit: parseInt(limit)
+    });
+  } catch (error) {
+    console.error('Get users error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update user credits
+app.post('/api/admin/users/:userId/credits', authenticate, requireAdmin, async (req, res) => {
+  const { userId } = req.params;
+  const { amount, reason } = req.body;
+  
+  try {
+    if (!amount || !reason) {
+      return res.status(400).json({ error: 'Amount and reason are required' });
+    }
+    
+    const connection = await pool.getConnection();
+    await connection.beginTransaction();
+    
+    try {
+      await addCredits(parseInt(userId), parseInt(amount), `管理员操作 - ${reason}`, connection);
+      await connection.commit();
+      connection.release();
+      
+      res.json({ success: true });
+    } catch (error) {
+      await connection.rollback();
+      connection.release();
+      throw error;
+    }
+  } catch (error) {
+    console.error('Update user credits error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update user role
+app.post('/api/admin/users/:userId/role', authenticate, requireAdmin, async (req, res) => {
+  const { userId } = req.params;
+  const { role } = req.body;
+  
+  try {
+    if (!['user', 'admin'].includes(role)) {
+      return res.status(400).json({ error: 'Invalid role' });
+    }
+    
+    await pool.query(
+      'UPDATE users SET role = ? WHERE id = ?',
+      [role, userId]
+    );
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Update user role error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get user activity
+app.get('/api/admin/users/:userId/activity', authenticate, requireAdmin, async (req, res) => {
+  const { userId } = req.params;
+  const { limit = 100 } = req.query;
+  
+  try {
+    const [history] = await pool.query(
+      `SELECT * FROM credits_history 
+       WHERE user_id = ? 
+       ORDER BY created_at DESC 
+       LIMIT ?`,
+      [userId, parseInt(limit)]
+    );
+    
+    res.json({ history });
+  } catch (error) {
+    console.error('Get user activity error:', error);
     res.status(500).json({ error: error.message });
   }
 });

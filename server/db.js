@@ -44,6 +44,7 @@ export async function initDatabase() {
         ai_credits INT DEFAULT 100,
         notion_api_key VARCHAR(500),
         notion_database_id VARCHAR(100),
+        role ENUM('user', 'admin') DEFAULT 'user',
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX idx_email (email)
@@ -193,25 +194,21 @@ export async function initDatabase() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
 
-    // Payment orders
+    // Recharge cards
     await connection.query(`
-      CREATE TABLE IF NOT EXISTS payment_orders (
+      CREATE TABLE IF NOT EXISTS recharge_cards (
         id INT AUTO_INCREMENT PRIMARY KEY,
-        user_id INT NOT NULL,
-        order_no VARCHAR(64) UNIQUE NOT NULL,
-        package_id VARCHAR(50) NOT NULL,
-        amount DECIMAL(10, 2) NOT NULL,
+        card_code VARCHAR(32) UNIQUE NOT NULL,
         credits INT NOT NULL,
-        payment_method ENUM('alipay', 'wechat') DEFAULT 'alipay',
-        status ENUM('pending', 'paid', 'failed', 'refunded') DEFAULT 'pending',
-        trade_no VARCHAR(128),
-        notify_data TEXT,
-        paid_at DATETIME,
+        status ENUM('unused', 'used', 'expired') DEFAULT 'unused',
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-        INDEX idx_order_no (order_no),
-        INDEX idx_user_status (user_id, status),
+        expires_at DATETIME,
+        used_by INT,
+        used_at DATETIME,
+        used_ip VARCHAR(45),
+        FOREIGN KEY (used_by) REFERENCES users(id) ON DELETE SET NULL,
+        INDEX idx_card_code (card_code),
+        INDEX idx_status (status),
         INDEX idx_created (created_at)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
