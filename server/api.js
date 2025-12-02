@@ -596,7 +596,8 @@ app.get('/api/admin/users/:userId/activity', authenticate, requireAdmin, async (
   
   try {
     const [history] = await pool.query(
-      `SELECT * FROM credits_history 
+      `SELECT id, operation_type as change_type, -credits_cost as credits_change, description, created_at 
+       FROM ai_credits_log 
        WHERE user_id = ? 
        ORDER BY created_at DESC 
        LIMIT ?`,

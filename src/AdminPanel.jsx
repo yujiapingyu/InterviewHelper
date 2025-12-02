@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Users, CreditCard, BarChart3, Download, RefreshCw, Search, Plus, Key, Shield } from 'lucide-react';
+import { Users, CreditCard, BarChart3, Download, RefreshCw, Search, Plus, Key, Shield, Info, X } from 'lucide-react';
 
 function AdminPanel({ user, onLogout }) {
   const [activeTab, setActiveTab] = useState('cards');
@@ -14,6 +14,8 @@ function AdminPanel({ user, onLogout }) {
     credits: 100,
     expiry_days: null
   });
+  const [selectedCardUser, setSelectedCardUser] = useState(null);
+  const [showUserModal, setShowUserModal] = useState(false);
   
   // User management state
   const [users, setUsers] = useState([]);
@@ -117,6 +119,42 @@ function AdminPanel({ user, onLogout }) {
       const data = await response.json();
       setUsers(data.users);
       setUsersTotal(data.total);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  const fetchCardUser = async (userId) => {
+    try {
+      setLoading(true);
+      const response = await fetch(`${API_BASE_URL}/admin/users/${userId}/activity`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+        }
+      });
+      
+      if (!response.ok) throw new Error('Failed to fetch user info');
+      
+      const data = await response.json();
+      
+      // Also get basic user info
+      const userResponse = await fetch(`${API_BASE_URL}/admin/users?search=`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+        }
+      });
+      
+      if (userResponse.ok) {
+        const userData = await userResponse.json();
+        const userInfo = userData.users.find(u => u.id === userId);
+        setSelectedCardUser({
+          ...userInfo,
+          activity: data.history
+        });
+        setShowUserModal(true);
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -332,6 +370,7 @@ function AdminPanel({ user, onLogout }) {
                           <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">状态</th>
                           <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">创建时间</th>
                           <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">使用时间</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">使用用户</th>
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-200">
@@ -353,6 +392,17 @@ function AdminPanel({ user, onLogout }) {
                             </td>
                             <td className="px-4 py-3 text-sm text-gray-500">
                               {card.used_at ? new Date(card.used_at).toLocaleString('zh-CN') : '-'}
+                            </td>
+                            <td className="px-4 py-3 text-sm">
+                              {card.used_by ? (
+                                <button
+                                  onClick={() => fetchCardUser(card.used_by)}
+                                  className="flex items-center gap-1 text-blue-600 hover:text-blue-700 transition"
+                                >
+                                  <Info className="w-4 h-4" />
+                                  查看
+                                </button>
+                              ) : '-'}
                             </td>
                           </tr>
                         ))}
@@ -469,6 +519,97 @@ function AdminPanel({ user, onLogout }) {
           </div>
         </div>
       </div>
+      
+      {/* User Info Modal */}
+      {showUserModal && selectedCardUser && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b flex items-center justify-between sticky top-0 bg-white">
+              <h2 className="text-xl font-bold flex items-center gap-2">
+                <Users className="w-5 h-5" />
+                用户信息
+              </h2>
+              <button
+                onClick={() => {
+                  setShowUserModal(false);
+                  setSelectedCardUser(null);
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-6">
+              {/* Basic Info */}
+              <div className="bg-gray-50 rounded-lg p-4">
+                <h3 className="font-semibold text-gray-900 mb-3">基本信息</h3>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <span className="text-gray-500">用户ID:</span>
+                    <span className="ml-2 font-medium">{selectedCardUser.id}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">邮箱:</span>
+                    <span className="ml-2 font-medium">{selectedCardUser.email}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">用户名:</span>
+                    <span className="ml-2 font-medium">{selectedCardUser.username || '未设置'}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">当前积分:</span>
+                    <span className="ml-2 font-medium text-yellow-600">{selectedCardUser.ai_credits}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">角色:</span>
+                    <span className="ml-2 font-medium">{selectedCardUser.role === 'admin' ? '管理员' : '普通用户'}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">注册时间:</span>
+                    <span className="ml-2 font-medium">{new Date(selectedCardUser.created_at).toLocaleDateString('zh-CN')}</span>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Activity History */}
+              {selectedCardUser.activity && selectedCardUser.activity.length > 0 && (
+                <div>
+                  <h3 className="font-semibold text-gray-900 mb-3">最近活动记录</h3>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">类型</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">积分变化</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">说明</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">时间</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {selectedCardUser.activity.slice(0, 10).map((activity) => (
+                          <tr key={activity.id}>
+                            <td className="px-3 py-2 text-sm text-gray-900">{activity.change_type}</td>
+                            <td className="px-3 py-2 text-sm">
+                              <span className={activity.credits_change > 0 ? 'text-green-600' : 'text-red-600'}>
+                                {activity.credits_change > 0 ? '+' : ''}{activity.credits_change}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-sm text-gray-600">{activity.description}</td>
+                            <td className="px-3 py-2 text-sm text-gray-500">
+                              {new Date(activity.created_at).toLocaleString('zh-CN')}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
