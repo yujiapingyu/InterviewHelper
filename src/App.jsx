@@ -297,15 +297,44 @@ function App() {
     try {
       const result = await creditsAPI.recharge(amount);
       setAiCredits(result.credits_after);
-      alert(result.message);
+      showToast(result.message, 'success');
       setShowRechargeModal(false);
       
       // Reload user data
       await loadUserData();
     } catch (err) {
       setError(err.message);
-      alert('充值失败: ' + err.message);
+      showToast('充值失败: ' + err.message, 'error');
     } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAlipayPayment = async (packageId) => {
+    setLoading(true);
+    setError('');
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3002/api'}/payment/alipay/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+        },
+        body: JSON.stringify({ package_id: packageId })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Payment creation failed');
+      }
+
+      const data = await response.json();
+      
+      // Redirect to alipay payment page
+      window.location.href = data.payment_url;
+    } catch (err) {
+      setError(err.message);
+      showToast('支付创建失败: ' + err.message, 'error');
       setLoading(false);
     }
   };

@@ -193,6 +193,29 @@ export async function initDatabase() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
 
+    // Payment orders
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS payment_orders (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        order_no VARCHAR(64) UNIQUE NOT NULL,
+        package_id VARCHAR(50) NOT NULL,
+        amount DECIMAL(10, 2) NOT NULL,
+        credits INT NOT NULL,
+        payment_method ENUM('alipay', 'wechat') DEFAULT 'alipay',
+        status ENUM('pending', 'paid', 'failed', 'refunded') DEFAULT 'pending',
+        trade_no VARCHAR(128),
+        notify_data TEXT,
+        paid_at DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        INDEX idx_order_no (order_no),
+        INDEX idx_user_status (user_id, status),
+        INDEX idx_created (created_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+
     // Insert default questions
     const [rows] = await connection.query(
       'SELECT COUNT(*) as count FROM questions WHERE user_id IS NULL'

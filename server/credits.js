@@ -102,13 +102,17 @@ export async function deductCredits(userId, operationType, creditsCost, descript
  * @param {number} userId - 用户ID
  * @param {number} creditsToAdd - 添加的额度
  * @param {string} description - 描述
+ * @param {Object} existingConnection - 可选的现有数据库连接（用于事务）
  * @returns {Promise<{success: boolean, creditsAfter: number}>}
  */
-export async function addCredits(userId, creditsToAdd, description = 'Manual recharge') {
-  const connection = await pool.getConnection();
+export async function addCredits(userId, creditsToAdd, description = 'Manual recharge', existingConnection = null) {
+  const connection = existingConnection || await pool.getConnection();
+  const shouldManageTransaction = !existingConnection;
   
   try {
-    await connection.beginTransaction();
+    if (shouldManageTransaction) {
+      await connection.beginTransaction();
+    }
     
     const [userRows] = await connection.query(
       'SELECT ai_credits FROM users WHERE id = ? FOR UPDATE',
@@ -129,15 +133,21 @@ export async function addCredits(userId, creditsToAdd, description = 'Manual rec
       [userId, -creditsToAdd, creditsBefore, creditsAfter, description]
     );
     
-    await connection.commit();
+    if (shouldManageTransaction) {
+      await connection.commit();
+    }
     
     return { success: true, creditsAfter };
     
   } catch (error) {
-    await connection.rollback();
+    if (shouldManageTransaction) {
+      await connection.rollback();
+    }
     throw error;
   } finally {
-    connection.release();
+    if (shouldManageTransaction) {
+      connection.release();
+    }
   }
 }
 
