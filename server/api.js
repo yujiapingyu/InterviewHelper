@@ -7,6 +7,7 @@ import { parseResume, generateQuestions, evaluateAnswer, generateFollowUpQuestio
 import { extractTextFromFile } from './fileParser.js';
 import { isNotionEnabled, syncVocabularyToNotion, deleteVocabularyFromNotion } from './notion.js';
 import { requireCredits, chargeCredits, AI_COSTS, AI_COST_DESCRIPTIONS, checkCredits, getCreditsHistory, addCredits } from './credits.js';
+import { createAlipayOrder, verifyAlipaySign, RECHARGE_PACKAGES } from './alipay.js';
 
 const app = express();
 const PORT = 3002;
@@ -287,6 +288,172 @@ app.post('/api/credits/recharge', authenticate, async (req, res) => {
     });
   } catch (error) {
     console.error('Recharge credits error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== PAYMENT ROUTES =====
+
+// Get recharge packages
+app.get('/api/payment/packages', (req, res) => {
+  res.json({ packages: RECHARGE_PACKAGES });
+});
+
+// Create alipay order
+app.post('/api/payment/alipay/create', authenticate, async (req, res) => {
+  const { package_id } = req.body;
+  
+  try {
+    // Find package
+    const pkg = RECHARGE_PACKAGES.find(p => p.id === package_id);
+    if (!pkg) {
+      return res.status(400).json({ error: 'Invalid package' });
+    }
+
+    // Generate order number
+    const orderNo = `ORDER_${Date.now()}_${req.userId}`;
+    
+    // Save order to database
+    await pool.query(
+      `INSERT INTO payment_orders (user_id, order_no, package_id, amount, credits, payment_method, status)
+       VALUES (?, ?, ?, ?, ?, 'alipay', 'pending')`,
+      [req.userId, orderNo, package_id, pkg.price, pkg.credits]
+    );
+
+    // Create alipay payment URL
+    const paymentUrl = createAlipayOrder({
+      outTradeNo: orderNo,
+      totalAmount: pkg.price,
+      subject: pkg.name,
+      body: pkg.description
+    });
+
+    res.json({
+      success: true,
+      order_no: orderNo,
+      payment_url: paymentUrl
+    });
+  } catch (error) {
+    console.error('Create alipay order error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Alipay notify callback
+app.post('/api/payment/alipay/notify', async (req, res) => {
+  try {
+    const params = req.body;
+    
+    // Verify signature
+    if (!verifyAlipaySign(params, params.sign)) {
+      console.error('Invalid alipay signature');
+      return res.send('fail');
+    }
+
+    const {
+      out_trade_no,
+      trade_no,
+      trade_status
+    } = params;
+
+    // Only process TRADE_SUCCESS
+    if (trade_status !== 'TRADE_SUCCESS') {
+      return res.send('success');
+    }
+
+    // Check if order already processed
+    const [orders] = await pool.query(
+      'SELECT * FROM payment_orders WHERE order_no = ?',
+      [out_trade_no]
+    );
+
+    if (orders.length === 0) {
+      console.error('Order not found:', out_trade_no);
+      return res.send('fail');
+    }
+
+    const order = orders[0];
+    
+    if (order.status === 'paid') {
+      // Already processed
+      return res.send('success');
+    }
+
+    // Start transaction
+    const connection = await pool.getConnection();
+    await connection.beginTransaction();
+
+    try {
+      // Update order status
+      await connection.query(
+        `UPDATE payment_orders 
+         SET status = 'paid', trade_no = ?, notify_data = ?, paid_at = NOW()
+         WHERE order_no = ?`,
+        [trade_no, JSON.stringify(params), out_trade_no]
+      );
+
+      // Add credits to user
+      await addCredits(order.user_id, order.credits, `支付宝充值 - ${out_trade_no}`, connection);
+
+      await connection.commit();
+      connection.release();
+
+      res.send('success');
+    } catch (error) {
+      await connection.rollback();
+      connection.release();
+      throw error;
+    }
+  } catch (error) {
+    console.error('Alipay notify error:', error);
+    res.send('fail');
+  }
+});
+
+// Alipay return callback
+app.get('/api/payment/alipay/return', async (req, res) => {
+  const { out_trade_no } = req.query;
+  
+  // Redirect to frontend success page
+  res.redirect(`${process.env.ALIPAY_RETURN_URL}?order_no=${out_trade_no}`);
+});
+
+// Check order status
+app.get('/api/payment/order/:orderNo', authenticate, async (req, res) => {
+  const { orderNo } = req.params;
+  
+  try {
+    const [orders] = await pool.query(
+      'SELECT * FROM payment_orders WHERE order_no = ? AND user_id = ?',
+      [orderNo, req.userId]
+    );
+
+    if (orders.length === 0) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    res.json({ order: orders[0] });
+  } catch (error) {
+    console.error('Get order error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get payment history
+app.get('/api/payment/history', authenticate, async (req, res) => {
+  try {
+    const [orders] = await pool.query(
+      `SELECT id, order_no, package_id, amount, credits, payment_method, status, paid_at, created_at
+       FROM payment_orders 
+       WHERE user_id = ?
+       ORDER BY created_at DESC
+       LIMIT 50`,
+      [req.userId]
+    );
+
+    res.json({ orders });
+  } catch (error) {
+    console.error('Get payment history error:', error);
     res.status(500).json({ error: error.message });
   }
 });
