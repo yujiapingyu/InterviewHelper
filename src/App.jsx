@@ -112,7 +112,12 @@ function App() {
       const user = await auth.getCurrentUser();
       if (user) {
         setCurrentUser(user);
-        setCurrentView('home');
+        // Set view based on user role
+        if (user.role === 'admin') {
+          setCurrentView('admin');
+        } else {
+          setCurrentView('home');
+        }
         await loadUserData();
       }
     } catch (err) {
@@ -340,8 +345,12 @@ function App() {
       
       showToast(`充值成功！获得 ${data.credits} 点积分`, 'success');
       
-      // Refresh user info
-      await fetchUserInfo();
+      // Refresh user info and credits
+      const user = await auth.getCurrentUser();
+      if (user) {
+        setAiCredits(user.ai_credits || 0);
+        setCurrentUser(user);
+      }
       
       setLoading(false);
       setShowRechargeModal(false);
