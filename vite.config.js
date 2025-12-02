@@ -8,7 +8,11 @@ export default defineConfig(({ mode }) => {
     plugins: [react()],
     server: {
       host: '0.0.0.0',
-      port: parseInt(env.VITE_PORT) || 3000
+      port: parseInt(env.VITE_PORT) || 3000,
+      allowedHosts: [
+        'japanesetalk.org',
+        '.japanesetalk.org'
+      ]
     }
   }
 })
