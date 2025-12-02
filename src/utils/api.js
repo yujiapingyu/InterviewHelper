@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://japanesetalk.org:3002/api';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'localhost:3002/api';
 
 // Get token from localStorage
 function getToken() {
