@@ -151,8 +151,14 @@ export const auth = {
 
 // Questions API
 export const questionsAPI = {
-  async getAll(category = null) {
-    const url = category && category !== 'all' ? `/questions?category=${category}` : '/questions';
+  async getAll(category = null, page = 1, limit = 50, search = '') {
+    let url = `/questions?page=${page}&limit=${limit}`;
+    if (category && category !== 'all') {
+      url += `&category=${category}`;
+    }
+    if (search && search.trim()) {
+      url += `&search=${encodeURIComponent(search)}`;
+    }
     return fetchWithAuth(url);
   },
 
@@ -242,8 +248,8 @@ export const practiceAPI = {
 
 // Favorites API
 export const favoritesAPI = {
-  async getAll() {
-    return fetchWithAuth('/favorites');
+  async getAll(page = 1, limit = 50) {
+    return fetchWithAuth(`/favorites?page=${page}&limit=${limit}`);
   },
 
   async add(questionId, practiceRecordId = null, notes = '', userAnswer = null, aiFeedback = null, aiCorrectedVersion = null, conversationId = null) {
@@ -378,8 +384,8 @@ export const vocabularyAPI = {
     });
   },
 
-  async getAll() {
-    return fetchWithAuth('/vocabulary');
+  async getAll(page = 1, limit = 50) {
+    return fetchWithAuth(`/vocabulary?page=${page}&limit=${limit}`);
   },
 
   async save(vocabularyData) {

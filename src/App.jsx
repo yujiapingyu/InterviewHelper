@@ -103,6 +103,20 @@ function App() {
   // Question expand state
   const [expandedQuestions, setExpandedQuestions] = useState(new Set());
 
+  // Search state
+  const [searchKeyword, setSearchKeyword] = useState('');
+
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [favoritesPage, setFavoritesPage] = useState(1);
+  const [vocabularyPage, setVocabularyPage] = useState(1);
+  const [questionsTotal, setQuestionsTotal] = useState(0);
+  const [favoritesTotal, setFavoritesTotal] = useState(0);
+  const [vocabularyTotal, setVocabularyTotal] = useState(0);
+  const [questionsPerPage, setQuestionsPerPage] = useState(10);
+  const [favoritesPerPage, setFavoritesPerPage] = useState(10);
+  const [vocabularyPerPage, setVocabularyPerPage] = useState(10);
+
   useEffect(() => {
     loadCurrentUser();
   }, []);
@@ -130,18 +144,21 @@ function App() {
   const loadUserData = async () => {
     try {
       const [questionsData, favoritesData, resumesData, vocabularyData, notionStatus, costsData] = await Promise.all([
-        questionsAPI.getAll(),
-        favoritesAPI.getAll(),
+        questionsAPI.getAll(null, currentPage, questionsPerPage, searchKeyword),
+        favoritesAPI.getAll(favoritesPage, favoritesPerPage),
         resumeAPI.getAll(),
-        vocabularyAPI.getAll(),
+        vocabularyAPI.getAll(vocabularyPage, vocabularyPerPage),
         vocabularyAPI.getNotionStatus(),
         creditsAPI.getCosts()
       ]);
       
-      setQuestions(questionsData);
-      setFavorites(favoritesData);
+      setQuestions(questionsData.questions || questionsData);
+      setQuestionsTotal(questionsData.total || (questionsData.questions || questionsData).length);
+      setFavorites(favoritesData.favorites || favoritesData);
+      setFavoritesTotal(favoritesData.total || (favoritesData.favorites || favoritesData).length);
       setResumes(resumesData);
-      setVocabularyNotes(vocabularyData);
+      setVocabularyNotes(vocabularyData.notes || vocabularyData);
+      setVocabularyTotal(vocabularyData.total || (vocabularyData.notes || vocabularyData).length);
       setNotionEnabled(notionStatus.enabled);
       setCreditsCosts(costsData);
       
@@ -615,9 +632,10 @@ function App() {
         );
       }
       
-      const updatedFavorites = await favoritesAPI.getAll();
+      const updatedFavorites = await favoritesAPI.getAll(favoritesPage, favoritesPerPage);
       console.log('✅ Updated favorites:', updatedFavorites.length);
-      setFavorites(updatedFavorites);
+      setFavorites(updatedFavorites.favorites || updatedFavorites);
+      setFavoritesTotal(updatedFavorites.total || (updatedFavorites.favorites || updatedFavorites).length);
       
       alert('対話を完了し、お気に入りに保存しました！');
       
@@ -709,8 +727,9 @@ function App() {
       console.log('✅ Vocabulary saved:', savedNote);
       
       // Reload vocabulary notes
-      const updatedNotes = await vocabularyAPI.getAll();
-      setVocabularyNotes(updatedNotes);
+      const updatedNotes = await vocabularyAPI.getAll(vocabularyPage, vocabularyPerPage);
+      setVocabularyNotes(updatedNotes.notes || updatedNotes);
+      setVocabularyTotal(updatedNotes.total || (updatedNotes.notes || updatedNotes).length);
       
       // Show toast notification
       if (savedNote.synced_to_notion) {
@@ -734,8 +753,9 @@ function App() {
     
     try {
       await vocabularyAPI.delete(id);
-      const updatedNotes = await vocabularyAPI.getAll();
-      setVocabularyNotes(updatedNotes);
+      const updatedNotes = await vocabularyAPI.getAll(vocabularyPage, vocabularyPerPage);
+      setVocabularyNotes(updatedNotes.notes || updatedNotes);
+      setVocabularyTotal(updatedNotes.total || (updatedNotes.notes || updatedNotes).length);
     } catch (err) {
       setError('删除失败: ' + err.message);
     }
@@ -802,8 +822,9 @@ function App() {
         );
       }
       
-      const updatedFavorites = await favoritesAPI.getAll();
-      setFavorites(updatedFavorites);
+      const updatedFavorites = await favoritesAPI.getAll(favoritesPage, favoritesPerPage);
+      setFavorites(updatedFavorites.favorites || updatedFavorites);
+      setFavoritesTotal(updatedFavorites.total || (updatedFavorites.favorites || updatedFavorites).length);
     } catch (err) {
       console.error('❌ Favorite toggle error:', err);
       setError('お気に入りの更新に失敗しました: ' + err.message);
@@ -824,8 +845,9 @@ function App() {
         });
       }
 
-      const updatedQuestions = await questionsAPI.getAll();
-      setQuestions(updatedQuestions);
+      const updatedQuestions = await questionsAPI.getAll(categoryFilter === 'all' ? null : categoryFilter, currentPage, questionsPerPage, searchKeyword);
+      setQuestions(updatedQuestions.questions || updatedQuestions);
+      setQuestionsTotal(updatedQuestions.total || (updatedQuestions.questions || updatedQuestions).length);
       setCurrentView('questions');
       setEditingQuestion(null);
       setQuestionForm({
@@ -848,8 +870,9 @@ function App() {
 
     try {
       await questionsAPI.delete(questionId);
-      const updatedQuestions = await questionsAPI.getAll();
-      setQuestions(updatedQuestions);
+      const updatedQuestions = await questionsAPI.getAll(categoryFilter === 'all' ? null : categoryFilter, currentPage, questionsPerPage, searchKeyword);
+      setQuestions(updatedQuestions.questions || updatedQuestions);
+      setQuestionsTotal(updatedQuestions.total || (updatedQuestions.questions || updatedQuestions).length);
     } catch (err) {
       setError('質問の削除に失敗しました: ' + err.message);
     }
@@ -868,8 +891,9 @@ function App() {
       
       const newQuestions = await questionsAPI.generate(category, count, resumeInfo);
 
-      const updatedQuestions = await questionsAPI.getAll();
-      setQuestions(updatedQuestions);
+      const updatedQuestions = await questionsAPI.getAll(categoryFilter === 'all' ? null : categoryFilter, currentPage, questionsPerPage, searchKeyword);
+      setQuestions(updatedQuestions.questions || updatedQuestions);
+      setQuestionsTotal(updatedQuestions.total || (updatedQuestions.questions || updatedQuestions).length);
       setShowGenerateModal(false);
       
       // Refresh credits after AI operation
@@ -902,8 +926,9 @@ function App() {
 
     try {
       const result = await questionsAPI.importFromDocument(importFile);
-      const updatedQuestions = await questionsAPI.getAll();
-      setQuestions(updatedQuestions);
+      const updatedQuestions = await questionsAPI.getAll(categoryFilter === 'all' ? null : categoryFilter, currentPage, questionsPerPage, searchKeyword);
+      setQuestions(updatedQuestions.questions || updatedQuestions);
+      setQuestionsTotal(updatedQuestions.total || (updatedQuestions.questions || updatedQuestions).length);
       setShowImportModal(false);
       setImportFile(null);
       alert(result.message);
@@ -927,8 +952,9 @@ function App() {
         generateAnswer
       );
       
-      const updatedQuestions = await questionsAPI.getAll();
-      setQuestions(updatedQuestions);
+      const updatedQuestions = await questionsAPI.getAll(categoryFilter === 'all' ? null : categoryFilter, currentPage, questionsPerPage, searchKeyword);
+      setQuestions(updatedQuestions.questions || updatedQuestions);
+      setQuestionsTotal(updatedQuestions.total || (updatedQuestions.questions || updatedQuestions).length);
       setShowAnalysisModal(false);
       setAnalyzingQuestion(null);
       setAnalysisPrompt('');
@@ -964,13 +990,133 @@ function App() {
     }
   };
 
-  const filteredQuestions = categoryFilter === 'all' 
-    ? questions 
-    : questions.filter(q => q.category === categoryFilter);
+  const filteredQuestions = questions;
 
   const favoriteQuestions = questions.filter(q => 
     favorites.some(f => f.question_id === q.id)
   );
+
+  // Handle search
+  const handleSearch = async () => {
+    setCurrentPage(1);
+    const data = await questionsAPI.getAll(
+      categoryFilter === 'all' ? null : categoryFilter,
+      1,
+      questionsPerPage,
+      searchKeyword
+    );
+    setQuestions(data.questions || data);
+    setQuestionsTotal(data.total || (data.questions || data).length);
+  };
+
+  // Pagination component
+  const Pagination = ({ currentPage, totalItems, onPageChange, itemsPerPage = 10, onItemsPerPageChange }) => {
+    const totalPages = Math.ceil(totalItems / itemsPerPage);
+    
+    if (totalPages <= 1) return null;
+    
+    const pages = [];
+    const maxVisible = 5;
+    let startPage = Math.max(1, currentPage - Math.floor(maxVisible / 2));
+    let endPage = Math.min(totalPages, startPage + maxVisible - 1);
+    
+    if (endPage - startPage + 1 < maxVisible) {
+      startPage = Math.max(1, endPage - maxVisible + 1);
+    }
+    
+    for (let i = startPage; i <= endPage; i++) {
+      pages.push(i);
+    }
+    
+    return (
+      <div className="flex items-center justify-center gap-2 mt-6">
+        <button
+          onClick={() => onPageChange(1)}
+          disabled={currentPage === 1}
+          className="px-3 py-1 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          «
+        </button>
+        <button
+          onClick={() => onPageChange(currentPage - 1)}
+          disabled={currentPage === 1}
+          className="px-3 py-1 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          ‹
+        </button>
+        
+        {startPage > 1 && (
+          <>
+            <button
+              onClick={() => onPageChange(1)}
+              className="px-3 py-1 rounded-lg border border-gray-300 hover:bg-gray-50"
+            >
+              1
+            </button>
+            {startPage > 2 && <span className="px-2">...</span>}
+          </>
+        )}
+        
+        {pages.map(page => (
+          <button
+            key={page}
+            onClick={() => onPageChange(page)}
+            className={`px-3 py-1 rounded-lg border ${
+              page === currentPage
+                ? 'bg-blue-600 text-white border-blue-600'
+                : 'border-gray-300 hover:bg-gray-50'
+            }`}
+          >
+            {page}
+          </button>
+        ))}
+        
+        {endPage < totalPages && (
+          <>
+            {endPage < totalPages - 1 && <span className="px-2">...</span>}
+            <button
+              onClick={() => onPageChange(totalPages)}
+              className="px-3 py-1 rounded-lg border border-gray-300 hover:bg-gray-50"
+            >
+              {totalPages}
+            </button>
+          </>
+        )}
+        
+        <button
+          onClick={() => onPageChange(currentPage + 1)}
+          disabled={currentPage === totalPages}
+          className="px-3 py-1 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          ›
+        </button>
+        <button
+          onClick={() => onPageChange(totalPages)}
+          disabled={currentPage === totalPages}
+          className="px-3 py-1 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          »
+        </button>
+        
+        <span className="ml-4 text-sm text-gray-600">
+          {currentPage} / {totalPages} ページ ({totalItems}件)
+        </span>
+        
+        {onItemsPerPageChange && (
+          <select
+            value={itemsPerPage}
+            onChange={(e) => onItemsPerPageChange(parseInt(e.target.value))}
+            className="ml-4 px-2 py-1 border border-gray-300 rounded text-sm"
+          >
+            <option value={10}>10件/ページ</option>
+            <option value={20}>20件/ページ</option>
+            <option value={50}>50件/ページ</option>
+            <option value={100}>100件/ページ</option>
+          </select>
+        )}
+      </div>
+    );
+  };
 
   // Login View (shortened for brevity - keeping same structure)
   if (!currentUser && currentView === 'login') {
@@ -1400,25 +1546,87 @@ function App() {
                 </div>
               </div>
 
+              {/* Search Box */}
+              <div className="mb-4">
+                <div className="relative flex gap-2">
+                  <div className="relative flex-1">
+                    <input
+                      type="text"
+                      value={searchKeyword}
+                      onChange={(e) => setSearchKeyword(e.target.value)}
+                      onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
+                      placeholder="キーワードで検索... (質問、回答、要点)"
+                      className="w-full px-4 py-2 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                    <Search className="w-5 h-5 text-gray-400 absolute left-3 top-2.5" />
+                  </div>
+                  <button
+                    onClick={handleSearch}
+                    className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+                  >
+                    <Search className="w-4 h-4" />
+                    検索
+                  </button>
+                  {searchKeyword && (
+                    <button
+                      onClick={async () => {
+                        setSearchKeyword('');
+                        setCurrentPage(1);
+                        const data = await questionsAPI.getAll(
+                          categoryFilter === 'all' ? null : categoryFilter,
+                          1,
+                          questionsPerPage,
+                          ''
+                        );
+                        setQuestions(data.questions || data);
+                        setQuestionsTotal(data.total || (data.questions || data).length);
+                      }}
+                      className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 flex items-center gap-2"
+                    >
+                      <X className="w-4 h-4" />
+                      クリア
+                    </button>
+                  )}
+                </div>
+              </div>
+
               {/* Category Filter */}
               <div className="flex gap-2 mb-6">
                 <button
-                  onClick={() => setCategoryFilter('all')}
+                  onClick={async () => {
+                    setCategoryFilter('all');
+                    setCurrentPage(1);
+                    const data = await questionsAPI.getAll(null, 1, questionsPerPage, searchKeyword);
+                    setQuestions(data.questions || data);
+                    setQuestionsTotal(data.total || (data.questions || data).length);
+                  }}
                   className={`px-4 py-2 rounded-lg ${categoryFilter === 'all' ? 'bg-gray-800 text-white' : 'bg-gray-100'}`}
                 >
-                  すべて ({questions.length})
+                  すべて ({questionsTotal})
                 </button>
                 <button
-                  onClick={() => setCategoryFilter('HR')}
+                  onClick={async () => {
+                    setCategoryFilter('HR');
+                    setCurrentPage(1);
+                    const data = await questionsAPI.getAll('HR', 1, questionsPerPage, searchKeyword);
+                    setQuestions(data.questions || data);
+                    setQuestionsTotal(data.total || (data.questions || data).length);
+                  }}
                   className={`px-4 py-2 rounded-lg ${categoryFilter === 'HR' ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}
                 >
-                  HR ({questions.filter(q => q.category === 'HR').length})
+                  HR
                 </button>
                 <button
-                  onClick={() => setCategoryFilter('Tech')}
+                  onClick={async () => {
+                    setCategoryFilter('Tech');
+                    setCurrentPage(1);
+                    const data = await questionsAPI.getAll('Tech', 1, questionsPerPage, searchKeyword);
+                    setQuestions(data.questions || data);
+                    setQuestionsTotal(data.total || (data.questions || data).length);
+                  }}
                   className={`px-4 py-2 rounded-lg ${categoryFilter === 'Tech' ? 'bg-green-600 text-white' : 'bg-gray-100'}`}
                 >
-                  Tech ({questions.filter(q => q.category === 'Tech').length})
+                  Tech
                 </button>
               </div>
 
@@ -1550,6 +1758,26 @@ function App() {
                   </div>
                 )}
               </div>
+              
+              {/* Pagination */}
+              <Pagination 
+                currentPage={currentPage}
+                totalItems={questionsTotal}
+                onPageChange={async (page) => {
+                  setCurrentPage(page);
+                  const data = await questionsAPI.getAll(categoryFilter === 'all' ? null : categoryFilter, page, questionsPerPage, searchKeyword);
+                  setQuestions(data.questions || data);
+                  setQuestionsTotal(data.total || (data.questions || data).length);
+                }}
+                itemsPerPage={questionsPerPage}
+                onItemsPerPageChange={async (newSize) => {
+                  setQuestionsPerPage(newSize);
+                  setCurrentPage(1);
+                  const data = await questionsAPI.getAll(categoryFilter === 'all' ? null : categoryFilter, 1, newSize, searchKeyword);
+                  setQuestions(data.questions || data);
+                  setQuestionsTotal(data.total || (data.questions || data).length);
+                }}
+              />
             </div>
           </div>
         )}
@@ -2216,6 +2444,26 @@ function App() {
                 })}
               </div>
             )}
+            
+            {/* Pagination */}
+            <Pagination 
+              currentPage={favoritesPage}
+              totalItems={favoritesTotal}
+              onPageChange={async (page) => {
+                setFavoritesPage(page);
+                const data = await favoritesAPI.getAll(page, favoritesPerPage);
+                setFavorites(data.favorites || data);
+                setFavoritesTotal(data.total || (data.favorites || data).length);
+              }}
+              itemsPerPage={favoritesPerPage}
+              onItemsPerPageChange={async (newSize) => {
+                setFavoritesPerPage(newSize);
+                setFavoritesPage(1);
+                const data = await favoritesAPI.getAll(1, newSize);
+                setFavorites(data.favorites || data);
+                setFavoritesTotal(data.total || (data.favorites || data).length);
+              }}
+            />
           </div>
         )}
 
@@ -2398,6 +2646,26 @@ function App() {
                 ))}
               </div>
             )}
+            
+            {/* Pagination */}
+            <Pagination 
+              currentPage={vocabularyPage}
+              totalItems={vocabularyTotal}
+              onPageChange={async (page) => {
+                setVocabularyPage(page);
+                const data = await vocabularyAPI.getAll(page, vocabularyPerPage);
+                setVocabularyNotes(data.notes || data);
+                setVocabularyTotal(data.total || (data.notes || data).length);
+              }}
+              itemsPerPage={vocabularyPerPage}
+              onItemsPerPageChange={async (newSize) => {
+                setVocabularyPerPage(newSize);
+                setVocabularyPage(1);
+                const data = await vocabularyAPI.getAll(1, newSize);
+                setVocabularyNotes(data.notes || data);
+                setVocabularyTotal(data.total || (data.notes || data).length);
+              }}
+            />
           </>
         ) : (
           <div className="space-y-6">
@@ -3108,7 +3376,7 @@ function App() {
               <div>
                 <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
                   <History className="w-5 h-5" />
-                  使用履歴
+                  使用履歴（最近20件）
                 </h3>
                 <div className="bg-gray-50 rounded-lg max-h-96 overflow-y-auto">
                   {creditsHistory.length === 0 ? (
@@ -3117,7 +3385,7 @@ function App() {
                     </div>
                   ) : (
                     <div className="divide-y">
-                      {creditsHistory.map((record) => (
+                      {creditsHistory.slice(0, 20).map((record) => (
                         <div key={record.id} className="px-4 py-3 hover:bg-gray-100">
                           <div className="flex items-center justify-between">
                             <div className="flex-1">
@@ -3130,8 +3398,8 @@ function App() {
                               </div>
                             </div>
                             <div className="text-right ml-4">
-                              <div className={`text-lg font-semibold ${record.credits_cost > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                                {record.credits_cost > 0 ? '-' : '+'}{Math.abs(record.credits_cost)}
+                              <div className={`text-lg font-semibold ${record.credits_cost < 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                {record.credits_cost < 0 ? '+' : '-'}{Math.abs(record.credits_cost)}
                               </div>
                               <div className="text-xs text-gray-500">
                                 {record.credits_before} → {record.credits_after}

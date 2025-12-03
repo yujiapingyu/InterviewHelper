@@ -614,27 +614,47 @@ app.get('/api/admin/users/:userId/activity', authenticate, requireAdmin, async (
 // ===== QUESTIONS ROUTES =====
 
 app.get('/api/questions', authenticate, async (req, res) => {
-  const { category } = req.query;
+  const { category, page = 1, limit = 50, search = '' } = req.query;
+  const offset = (parseInt(page) - 1) * parseInt(limit);
   
   try {
     let query = 'SELECT * FROM questions WHERE user_id IS NULL OR user_id = ?';
+    let countQuery = 'SELECT COUNT(*) as total FROM questions WHERE user_id IS NULL OR user_id = ?';
     const params = [req.userId];
+    const countParams = [req.userId];
     
     if (category && category !== 'all') {
       query += ' AND category = ?';
+      countQuery += ' AND category = ?';
       params.push(category);
+      countParams.push(category);
     }
     
-    query += ' ORDER BY created_at DESC';
+    if (search && search.trim()) {
+      query += ' AND (question_ja LIKE ? OR question_zh LIKE ? OR model_answer_ja LIKE ? OR summary LIKE ?)';
+      countQuery += ' AND (question_ja LIKE ? OR question_zh LIKE ? OR model_answer_ja LIKE ? OR summary LIKE ?)';
+      const searchPattern = `%${search}%`;
+      params.push(searchPattern, searchPattern, searchPattern, searchPattern);
+      countParams.push(searchPattern, searchPattern, searchPattern, searchPattern);
+    }
+    
+    query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+    params.push(parseInt(limit), offset);
     
     const [questions] = await pool.query(query, params);
+    const [countResult] = await pool.query(countQuery, countParams);
     
     // Parse JSON fields
     questions.forEach(q => {
       if (q.tips_ja) q.tips_ja = JSON.parse(q.tips_ja);
     });
     
-    res.json(questions);
+    res.json({
+      questions,
+      total: countResult[0].total,
+      page: parseInt(page),
+      limit: parseInt(limit)
+    });
   } catch (error) {
     console.error('Get questions error:', error);
     res.status(500).json({ error: error.message });
@@ -688,6 +708,16 @@ app.post('/api/questions', authenticate, async (req, res) => {
   const { category, question_ja, question_zh, model_answer_ja, tips_ja, summary, is_ai_generated } = req.body;
   
   try {
+    // Check user's question count limit (max 300)
+    const [countResult] = await pool.query(
+      'SELECT COUNT(*) as count FROM questions WHERE user_id = ?',
+      [req.userId]
+    );
+    
+    if (countResult[0].count >= 300) {
+      return res.status(400).json({ error: '質問数が上限（300件）に達しました。古い質問を削除してください。' });
+    }
+    
     const [result] = await pool.query(
       `INSERT INTO questions (user_id, category, question_ja, question_zh, model_answer_ja, tips_ja, summary, is_ai_generated)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -961,6 +991,9 @@ app.get('/api/practice/question/:questionId', authenticate, async (req, res) => 
 // ===== FAVORITES ROUTES =====
 
 app.get('/api/favorites', authenticate, async (req, res) => {
+  const { page = 1, limit = 50 } = req.query;
+  const offset = (parseInt(page) - 1) * parseInt(limit);
+  
   try {
     const [favorites] = await pool.query(
       `SELECT 
@@ -972,7 +1005,13 @@ app.get('/api/favorites', authenticate, async (req, res) => {
       FROM favorites f 
       JOIN questions q ON f.question_id = q.id 
       WHERE f.user_id = ?
-      ORDER BY f.created_at DESC`,
+      ORDER BY f.created_at DESC
+      LIMIT ? OFFSET ?`,
+      [req.userId, parseInt(limit), offset]
+    );
+    
+    const [countResult] = await pool.query(
+      'SELECT COUNT(*) as total FROM favorites WHERE user_id = ?',
       [req.userId]
     );
     
@@ -988,7 +1027,12 @@ app.get('/api/favorites', authenticate, async (req, res) => {
       }
     });
     
-    res.json(favorites);
+    res.json({
+      favorites,
+      total: countResult[0].total,
+      page: parseInt(page),
+      limit: parseInt(limit)
+    });
   } catch (error) {
     console.error('Get favorites error:', error);
     res.status(500).json({ error: error.message });
@@ -1146,6 +1190,16 @@ app.post('/api/resumes', authenticate, requireCredits('PARSE_RESUME'), async (re
   const { filename, content } = req.body;
   
   try {
+    // Check user's resume count limit (max 5)
+    const [countResult] = await pool.query(
+      'SELECT COUNT(*) as count FROM resume_info WHERE user_id = ?',
+      [req.userId]
+    );
+    
+    if (countResult[0].count >= 5) {
+      return res.status(400).json({ error: '履歴書の上限（5件）に達しました。古い履歴書を削除してください。' });
+    }
+    
     // Parse resume with AI
     const parsed = await parseResume(content);
     
@@ -1608,9 +1662,17 @@ app.post('/api/vocabulary', authenticate, async (req, res) => {
 
 // Get all vocabulary notes
 app.get('/api/vocabulary', authenticate, async (req, res) => {
+  const { page = 1, limit = 50 } = req.query;
+  const offset = (parseInt(page) - 1) * parseInt(limit);
+  
   try {
     const [notes] = await pool.query(
-      'SELECT * FROM vocabulary_notes WHERE user_id = ? ORDER BY created_at DESC',
+      'SELECT * FROM vocabulary_notes WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?',
+      [req.userId, parseInt(limit), offset]
+    );
+    
+    const [countResult] = await pool.query(
+      'SELECT COUNT(*) as total FROM vocabulary_notes WHERE user_id = ?',
       [req.userId]
     );
     
@@ -1619,7 +1681,12 @@ app.get('/api/vocabulary', authenticate, async (req, res) => {
       if (note.tags) note.tags = JSON.parse(note.tags);
     });
     
-    res.json(notes);
+    res.json({
+      notes,
+      total: countResult[0].total,
+      page: parseInt(page),
+      limit: parseInt(limit)
+    });
   } catch (error) {
     console.error('Get vocabulary error:', error);
     res.status(500).json({ error: error.message });
