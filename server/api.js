@@ -111,15 +111,14 @@ app.post('/api/auth/send-code', async (req, res) => {
 
     // 生成验证码
     const code = generateVerificationCode();
-    const expiresAt = toMySQLDatetime(new Date(Date.now() + 10 * 60 * 1000)); // 10分钟有效
 
     // 删除该邮箱的旧验证码
     await pool.query('DELETE FROM email_verification_codes WHERE email = ?', [email]);
 
-    // 保存新验证码
+    // 保存新验证码（使用数据库时间计算过期时间，避免时区问题）
     await pool.query(
-      'INSERT INTO email_verification_codes (email, code, expires_at) VALUES (?, ?, ?)',
-      [email, code, expiresAt]
+      'INSERT INTO email_verification_codes (email, code, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 10 MINUTE))',
+      [email, code]
     );
 
     // 发送邮件
@@ -139,12 +138,27 @@ app.post('/api/auth/register', async (req, res) => {
   try {
     // 验证验证码
     const [codeRows] = await pool.query(
-      'SELECT * FROM email_verification_codes WHERE email = ? AND code = ? AND used = 0 AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1',
+      'SELECT *, NOW() as server_time FROM email_verification_codes WHERE email = ? AND code = ? AND used = 0 ORDER BY created_at DESC LIMIT 1',
       [email, code]
     );
 
     if (codeRows.length === 0) {
       return res.status(400).json({ error: '認証コードが無効または期限切れです' });
+    }
+
+    const codeRecord = codeRows[0];
+    
+    // 检查是否过期（添加调试日志）
+    console.log('🔍 验证码检查:', {
+      email,
+      code,
+      expires_at: codeRecord.expires_at,
+      server_time: codeRecord.server_time,
+      expired: new Date(codeRecord.expires_at) <= new Date(codeRecord.server_time)
+    });
+
+    if (new Date(codeRecord.expires_at) <= new Date(codeRecord.server_time)) {
+      return res.status(400).json({ error: '認証コードが期限切れです' });
     }
 
     // 再次检查邮箱是否已注册（防止并发注册）
@@ -156,7 +170,7 @@ app.post('/api/auth/register', async (req, res) => {
     // 标记验证码为已使用
     await pool.query(
       'UPDATE email_verification_codes SET used = 1 WHERE id = ?',
-      [codeRows[0].id]
+      [codeRecord.id]
     );
 
     // 创建用户
