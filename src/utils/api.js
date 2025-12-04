@@ -75,11 +75,33 @@ async function fetchWithAuth(url, options = {}) {
 
 // Auth API
 export const auth = {
-  async register(email, password, username = '') {
+  async sendVerificationCode(email) {
+    const response = await fetch(`${API_BASE_URL}/auth/send-code`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+
+    const contentType = response.headers.get('content-type');
+    if (!contentType || !contentType.includes('application/json')) {
+      const text = await response.text();
+      console.error('Non-JSON response:', text.substring(0, 200));
+      throw new Error('サーバーエラー: 予期しないレスポンス形式');
+    }
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || 'コード送信に失敗しました');
+    }
+
+    return data;
+  },
+
+  async register(email, password, username = '', code = '') {
     const response = await fetch(`${API_BASE_URL}/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, username }),
+      body: JSON.stringify({ email, password, username, code }),
     });
 
     const contentType = response.headers.get('content-type');

@@ -8,6 +8,7 @@ import { extractTextFromFile } from './fileParser.js';
 import { isNotionEnabled, syncVocabularyToNotion, deleteVocabularyFromNotion } from './notion.js';
 import { requireCredits, chargeCredits, AI_COSTS, AI_COST_DESCRIPTIONS, checkCredits, getCreditsHistory, addCredits } from './credits.js';
 import { generateCards, validateCardCodeFormat } from './cardGenerator.js';
+import { generateVerificationCode, sendVerificationEmail, sendWelcomeEmail } from './email.js';
 
 const app = express();
 const PORT = 3002;
@@ -97,15 +98,62 @@ function requireAdmin(req, res, next) {
 
 // ===== AUTH ROUTES =====
 
-app.post('/api/auth/register', async (req, res) => {
-  // Check if registration is allowed
-  if (process.env.ALLOW_REGISTRATION === 'false') {
-    return res.status(403).json({ error: 'Registration is currently disabled' });
-  }
-
-  const { email, password, username } = req.body;
+// Send verification code
+app.post('/api/auth/send-code', async (req, res) => {
+  const { email } = req.body;
 
   try {
+    // 检查邮箱是否已注册
+    const [existingUsers] = await pool.query('SELECT id FROM users WHERE email = ?', [email]);
+    if (existingUsers.length > 0) {
+      return res.status(400).json({ error: 'このメールアドレスは既に登録されています' });
+    }
+
+    // 生成验证码
+    const code = generateVerificationCode();
+    const expiresAt = toMySQLDatetime(new Date(Date.now() + 10 * 60 * 1000)); // 10分钟有效
+
+    // 删除该邮箱的旧验证码
+    await pool.query('DELETE FROM email_verification_codes WHERE email = ?', [email]);
+
+    // 保存新验证码
+    await pool.query(
+      'INSERT INTO email_verification_codes (email, code, expires_at) VALUES (?, ?, ?)',
+      [email, code, expiresAt]
+    );
+
+    // 发送邮件
+    await sendVerificationEmail(email, code);
+
+    res.json({ success: true, message: '認証コードを送信しました' });
+  } catch (error) {
+    console.error('Send verification code error:', error);
+    res.status(500).json({ error: 'コード送信に失敗しました: ' + error.message });
+  }
+});
+
+// Verify code and register
+app.post('/api/auth/register', async (req, res) => {
+  const { email, password, username, code } = req.body;
+
+  try {
+    // 验证验证码
+    const [codeRows] = await pool.query(
+      'SELECT * FROM email_verification_codes WHERE email = ? AND code = ? AND used = 0 AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1',
+      [email, code]
+    );
+
+    if (codeRows.length === 0) {
+      return res.status(400).json({ error: '認証コードが無効または期限切れです' });
+    }
+
+    // 标记验证码为已使用
+    await pool.query(
+      'UPDATE email_verification_codes SET used = 1 WHERE id = ?',
+      [codeRows[0].id]
+    );
+
+    // 创建用户
     const passwordHash = hashPassword(password);
     const [result] = await pool.query(
       `INSERT INTO users (email, password_hash, username) VALUES (?, ?, ?)`,
@@ -113,12 +161,12 @@ app.post('/api/auth/register', async (req, res) => {
     );
 
     const [userRows] = await pool.query(
-      'SELECT id, email, username, created_at FROM users WHERE id = ?',
+      'SELECT id, email, username, role, ai_credits, created_at FROM users WHERE id = ?',
       [result.insertId]
     );
     const user = userRows[0];
     
-    // Create session
+    // 创建会话
     const token = generateToken();
     const expiresAt = toMySQLDatetime(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)); // 30 days
     await pool.query(
@@ -126,9 +174,15 @@ app.post('/api/auth/register', async (req, res) => {
       [user.id, token, expiresAt]
     );
 
+    // 发送欢迎邮件（异步，不影响注册流程）
+    sendWelcomeEmail(email, username).catch(err => 
+      console.error('Failed to send welcome email:', err)
+    );
+
     res.json({ user, token });
   } catch (error) {
-    res.status(400).json({ error: error.code === 'ER_DUP_ENTRY' ? 'Email already exists' : error.message });
+    console.error('Register error:', error);
+    res.status(400).json({ error: error.code === 'ER_DUP_ENTRY' ? 'このメールアドレスは既に登録されています' : error.message });
   }
 });
 

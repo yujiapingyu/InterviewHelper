@@ -25,6 +25,9 @@ function App() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
+  const [verificationCode, setVerificationCode] = useState('');
+  const [codeSent, setCodeSent] = useState(false);
+  const [countdown, setCountdown] = useState(0);
 
   // Practice state
   const [userAnswer, setUserAnswer] = useState('');
@@ -121,6 +124,20 @@ function App() {
     loadCurrentUser();
   }, []);
 
+  useEffect(() => {
+    if (countdown > 0) {
+      const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [countdown]);
+
+  useEffect(() => {
+    if (countdown > 0) {
+      const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [countdown]);
+
   const loadCurrentUser = async () => {
     try {
       const user = await auth.getCurrentUser();
@@ -205,13 +222,15 @@ function App() {
     setLoading(true);
 
     try {
-      const user = await auth.register(email, password, username);
+      const user = await auth.register(email, password, username, verificationCode);
       setCurrentUser(user);
       setCurrentView('home');
       await loadUserData();
       setEmail('');
       setPassword('');
       setUsername('');
+      setVerificationCode('');
+      setCodeSent(false);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -226,6 +245,27 @@ function App() {
     setQuestions([]);
     setFavorites([]);
     setSelectedQuestion(null);
+  };
+
+  const handleSendCode = async () => {
+    if (!email || !email.includes('@')) {
+      setError('有効なメールアドレスを入力してください');
+      return;
+    }
+
+    setError('');
+    setLoading(true);
+
+    try {
+      await auth.sendVerificationCode(email);
+      setCodeSent(true);
+      setCountdown(60);
+      alert('認証コードを送信しました。メールをご確認ください。');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Refresh user credits after AI operations
@@ -1206,13 +1246,37 @@ function App() {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">メールアドレス</label>
+              <div className="flex gap-2">
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="email@example.com"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={handleSendCode}
+                  disabled={loading || countdown > 0 || !email}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap text-sm"
+                >
+                  {countdown > 0 ? `${countdown}s` : 'コード送信'}
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">認証コード</label>
               <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                type="text"
+                value={verificationCode}
+                onChange={(e) => setVerificationCode(e.target.value)}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="email@example.com"
+                placeholder="6桁の認証コード"
                 required
+                maxLength={6}
+                pattern="\d{6}"
               />
             </div>
 
