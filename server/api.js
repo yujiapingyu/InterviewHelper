@@ -147,6 +147,12 @@ app.post('/api/auth/register', async (req, res) => {
       return res.status(400).json({ error: '認証コードが無効または期限切れです' });
     }
 
+    // 再次检查邮箱是否已注册（防止并发注册）
+    const [existingUsers] = await pool.query('SELECT id FROM users WHERE email = ?', [email]);
+    if (existingUsers.length > 0) {
+      return res.status(400).json({ error: 'このメールアドレスは既に登録されています' });
+    }
+
     // 标记验证码为已使用
     await pool.query(
       'UPDATE email_verification_codes SET used = 1 WHERE id = ?',
