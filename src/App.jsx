@@ -3560,16 +3560,23 @@ function App() {
                 </h3>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   {[
-                    { credits: 100, label: '基础卡' },
-                    { credits: 300, label: '标准卡' },
-                    { credits: 500, label: '专业卡' },
-                    { credits: 1000, label: '企业卡' }
+                    { credits: 100, label: '基础卡', url: 'https://9wa.br3.cn/V' },
+                    { credits: 300, label: '标准卡', url: 'https://9wa.br3.cn/d' },
+                    { credits: 500, label: '专业卡', url: 'https://9wa.br3.cn/9' },
+                    { credits: 1000, label: '企业卡', url: 'https://9wa.br3.cn/S' }
                   ].map((card) => (
-                    <div key={card.credits} className="bg-white rounded p-3 border border-gray-200 text-center">
+                    <a 
+                      key={card.credits} 
+                      href={card.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="bg-white rounded p-3 border border-gray-200 hover:border-blue-400 hover:shadow-md transition-all text-center cursor-pointer block"
+                    >
                       <div className="text-xs text-gray-500 mb-1">{card.label}</div>
                       <div className="text-lg font-bold text-yellow-600">{card.credits}</div>
                       <div className="text-xs text-gray-500">ポイント</div>
-                    </div>
+                      <div className="text-xs text-blue-600 mt-2">购入 →</div>
+                    </a>
                   ))}
                 </div>
               </div>
