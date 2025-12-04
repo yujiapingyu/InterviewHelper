@@ -3575,7 +3575,7 @@ function App() {
               </div>
 
               {/* 测试充值（开发环境） */}
-              <div className="border-t pt-4">
+              {/* <div className="border-t pt-4">
                 <details className="cursor-pointer">
                   <summary className="text-sm text-gray-600 hover:text-gray-800 font-medium mb-2">
                     🔧 开发测试（直接充值，无需支付）
@@ -3593,7 +3593,7 @@ function App() {
                     ))}
                   </div>
                 </details>
-              </div>
+              </div> */}
 
               {error && (
                 <div className="mt-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
