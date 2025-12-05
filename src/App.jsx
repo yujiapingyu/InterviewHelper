@@ -1698,28 +1698,36 @@ function App() {
               <div className="space-y-4">
                 {filteredQuestions.map((question) => {
                   const isExpanded = expandedQuestions.has(question.id);
+                  // 获取分类信息，处理空值
+                  const categoryInfo = {
+                    'HR': { bg: 'bg-blue-100', text: 'text-blue-700', label: 'HR' },
+                    'Tech': { bg: 'bg-green-100', text: 'text-green-700', label: 'Tech' },
+                    'technical': { bg: 'bg-green-100', text: 'text-green-700', label: 'Tech' },
+                    'hr': { bg: 'bg-blue-100', text: 'text-blue-700', label: 'HR' },
+                  };
+                  const category = question.category || 'HR';
+                  const catInfo = categoryInfo[category] || { bg: 'bg-gray-100', text: 'text-gray-700', label: category || '未分類' };
+                  
                   return (
                   <div key={question.id} className="border rounded-lg hover:border-blue-300 transition" onMouseUp={handleTextSelection}>
-                    <div className="p-4">
-                      <div className="flex items-start justify-between mb-2">
+                    <div className="p-3 md:p-4">
+                      <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3 mb-2">
                         <div className="flex-1 cursor-pointer" onClick={() => toggleQuestionExpand(question.id)}>
-                          <div className="flex items-center gap-2 mb-2">
-                            <span className={`px-2 py-1 text-xs rounded ${
-                              question.category === 'HR' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'
-                            }`}>
-                              {question.category}
+                          <div className="flex items-center gap-2 mb-2 flex-wrap">
+                            <span className={`px-2 py-1 text-xs rounded ${catInfo.bg} ${catInfo.text}`}>
+                              {catInfo.label}
                             </span>
-                            {question.is_ai_generated && (
+                            {question.is_ai_generated === 1 && (
                               <span className="px-2 py-1 text-xs rounded bg-purple-100 text-purple-700">AI生成</span>
                             )}
                             <ChevronRight className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
                           </div>
-                          <h3 className="font-semibold text-lg mb-1">{question.question_ja}</h3>
+                          <h3 className="font-semibold text-base md:text-lg mb-1">{question.question_ja}</h3>
                           {question.question_zh && (
                             <p className="text-gray-600 text-sm">{question.question_zh}</p>
                           )}
                         </div>
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 flex-wrap md:flex-nowrap">
                           <button
                             onClick={() => handleToggleFavorite(question.id)}
                             className={`p-2 rounded-lg ${
@@ -1771,10 +1779,11 @@ function App() {
                           )}
                           <button
                             onClick={() => startPractice(question)}
-                            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+                            className="px-3 md:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-1 md:gap-2 text-sm md:text-base whitespace-nowrap"
                           >
                             <Play className="w-4 h-4" />
-                            練習
+                            <span className="hidden md:inline">練習</span>
+                            <span className="md:hidden">練習</span>
                           </button>
                         </div>
                       </div>
@@ -1948,11 +1957,16 @@ function App() {
           <div className="space-y-6">
             <div className="bg-white rounded-lg shadow-sm p-6">
               <div className="flex items-center justify-between mb-4">
-                <span className={`px-3 py-1 rounded-full text-sm ${
-                  selectedQuestion.category === 'HR' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'
-                }`}>
-                  {selectedQuestion.category}
-                </span>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className={`px-3 py-1 rounded-full text-sm ${
+                    selectedQuestion.category === 'HR' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'
+                  }`}>
+                    {selectedQuestion.category || 'HR'}
+                  </span>
+                  {selectedQuestion.is_ai_generated === 1 && (
+                    <span className="px-2 py-1 text-xs rounded bg-purple-100 text-purple-700">AI生成</span>
+                  )}
+                </div>
                 <button
                   onClick={() => handleToggleFavorite(selectedQuestion.id)}
                   className={`p-2 rounded-lg ${
@@ -2318,12 +2332,15 @@ function App() {
                     <div key={fav.id} className="border rounded-lg p-4 bg-gray-50" onMouseUp={handleTextSelection}>
                       <div className="flex items-start justify-between mb-4">
                         <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-2">
+                          <div className="flex items-center gap-2 mb-2 flex-wrap">
                             <span className={`px-2 py-1 text-xs rounded ${
                               fav.category === 'HR' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'
                             }`}>
-                              {fav.category}
+                              {fav.category || 'HR'}
                             </span>
+                            {fav.is_ai_generated === 1 && (
+                              <span className="px-2 py-1 text-xs rounded bg-purple-100 text-purple-700">AI生成</span>
+                            )}
                           </div>
                           <h3 className="font-semibold text-lg mb-1">{fav.question_ja}</h3>
                           {fav.question_zh && (
