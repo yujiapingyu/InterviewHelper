@@ -1344,106 +1344,125 @@ function App() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <h1 className="text-2xl font-bold text-gray-800">日本面接練習器</h1>
-            <span className="text-sm text-gray-500">ようこそ、{currentUser.username}さん</span>
-          </div>
-          <div className="flex items-center gap-3">
-            {/* AI Credits Display */}
-            <button
-              onClick={handleOpenCredits}
-              className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-yellow-400 to-yellow-500 text-white rounded-lg hover:from-yellow-500 hover:to-yellow-600 transition shadow-sm"
-              title="AIポイント残高"
-            >
-              <Coins className="w-5 h-5" />
-              <span className="font-semibold">{aiCredits}</span>
-              <span className="text-xs">ポイント</span>
-            </button>
-            
-            {/* Settings Button */}
-            <button
-              onClick={handleOpenSettings}
-              className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition"
-              title="設定"
-            >
-              <Settings className="w-5 h-5" />
-            </button>
-            
-            {/* Logout Button */}
-            <button
-              onClick={handleLogout}
-              className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition"
-            >
-              <LogOut className="w-5 h-5" />
-              ログアウト
-            </button>
+      <header className="bg-white shadow-sm border-b sticky top-0 z-10">
+        <div className="max-w-7xl mx-auto px-3 md:px-4 py-3 md:py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 md:gap-4 flex-1 min-w-0">
+              <h1 className="text-base md:text-2xl font-bold text-gray-800 truncate">日本面接練習器</h1>
+              <span className="text-xs md:text-sm text-gray-500 hidden sm:inline">ようこそ、{currentUser.username}さん</span>
+            </div>
+            <div className="flex items-center gap-1 md:gap-3">
+              {/* AI Credits Display */}
+              <button
+                onClick={handleOpenCredits}
+                className="flex items-center gap-1 md:gap-2 px-2 md:px-4 py-1.5 md:py-2 bg-gradient-to-r from-yellow-400 to-yellow-500 text-white rounded-lg hover:from-yellow-500 hover:to-yellow-600 transition shadow-sm text-sm md:text-base"
+                title="AIポイント残高"
+              >
+                <Coins className="w-4 h-4 md:w-5 md:h-5" />
+                <span className="font-semibold">{aiCredits}</span>
+                <span className="text-xs hidden md:inline">ポイント</span>
+              </button>
+              
+              {/* Settings Button */}
+              <button
+                onClick={handleOpenSettings}
+                className="flex items-center gap-1 md:gap-2 px-2 md:px-4 py-1.5 md:py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition"
+                title="設定"
+              >
+                <Settings className="w-4 h-4 md:w-5 md:h-5" />
+              </button>
+              
+              {/* Logout Button */}
+              <button
+                onClick={handleLogout}
+                className="hidden md:flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition"
+              >
+                <LogOut className="w-5 h-5" />
+                ログアウト
+              </button>
+              <button
+                onClick={handleLogout}
+                className="md:hidden p-2 text-gray-700 hover:bg-gray-100 rounded-lg transition"
+                title="ログアウト"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         </div>
       </header>
 
-      <div className="max-w-7xl mx-auto px-4 py-8">
-        {/* Navigation */}
-        <nav className="bg-white rounded-lg shadow-sm p-4 mb-8">
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => setCurrentView('home')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
-                currentView === 'home' ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200'
-              }`}
-            >
-              <Home className="w-5 h-5" />
-              ホーム
-            </button>
-            <button
-              onClick={() => setCurrentView('random')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
-                currentView === 'random' ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200'
-              }`}
-            >
-              <Shuffle className="w-5 h-5" />
-              ランダム練習
-            </button>
-            <button
-              onClick={() => setCurrentView('questions')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
-                currentView === 'questions' ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200'
-              }`}
-            >
-              <BookOpen className="w-5 h-5" />
-              質問管理
-            </button>
-            <button
-              onClick={() => setCurrentView('favorites')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
-                currentView === 'favorites' ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200'
-              }`}
-            >
-              <Star className="w-5 h-5" />
-              お気に入り ({favorites.length})
-            </button>
-            <button
-              onClick={() => setCurrentView('vocabulary')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
-                currentView === 'vocabulary' ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200'
-              }`}
-            >
-              <Book className="w-5 h-5" />
-              単語帳 ({vocabularyNotes.length})
-            </button>
-            <button
-              onClick={() => setCurrentView('resumes')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
-                currentView === 'resumes' ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200'
-              }`}
-            >
-              <FileText className="w-5 h-5" />
-              履歴書 ({resumes.length})
-            </button>
+      {/* Navigation */}
+      <nav className="bg-white border-b shadow-sm sticky top-[57px] md:top-[65px] z-10">
+        <div className="max-w-7xl mx-auto px-2 md:px-4 py-2 md:py-3 overflow-x-auto">
+          <div className="flex gap-1 md:gap-2 min-w-max">
+          <button
+            onClick={() => setCurrentView('home')}
+            className={`flex items-center gap-1 md:gap-2 px-2 md:px-4 py-1.5 md:py-2 rounded-lg transition text-sm md:text-base whitespace-nowrap ${
+              currentView === 'home' ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200'
+            }`}
+          >
+            <Home className="w-4 h-4 md:w-5 md:h-5" />
+            <span className="hidden sm:inline">ホーム</span>
+          </button>
+          <button
+            onClick={() => setCurrentView('random')}
+            className={`flex items-center gap-1 md:gap-2 px-2 md:px-4 py-1.5 md:py-2 rounded-lg transition text-sm md:text-base whitespace-nowrap ${
+              currentView === 'random' ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200'
+            }`}
+          >
+            <Shuffle className="w-4 h-4 md:w-5 md:h-5" />
+            <span className="hidden sm:inline">ランダム</span>
+            <span className="sm:hidden">練習</span>
+          </button>
+          <button
+            onClick={() => setCurrentView('questions')}
+            className={`flex items-center gap-1 md:gap-2 px-2 md:px-4 py-1.5 md:py-2 rounded-lg transition text-sm md:text-base whitespace-nowrap ${
+              currentView === 'questions' ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200'
+            }`}
+          >
+            <BookOpen className="w-4 h-4 md:w-5 md:h-5" />
+            <span className="hidden sm:inline">質問管理</span>
+            <span className="sm:hidden">質問</span>
+          </button>
+          <button
+            onClick={() => setCurrentView('favorites')}
+            className={`flex items-center gap-1 md:gap-2 px-2 md:px-4 py-1.5 md:py-2 rounded-lg transition text-sm md:text-base whitespace-nowrap ${
+              currentView === 'favorites' ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200'
+            }`}
+          >
+            <Star className="w-4 h-4 md:w-5 md:h-5" />
+            <span className="hidden sm:inline">お気に入り</span>
+            <span className="sm:hidden">★</span>
+            <span className="text-xs">({favorites.length})</span>
+          </button>
+          <button
+            onClick={() => setCurrentView('vocabulary')}
+            className={`flex items-center gap-1 md:gap-2 px-2 md:px-4 py-1.5 md:py-2 rounded-lg transition text-sm md:text-base whitespace-nowrap ${
+              currentView === 'vocabulary' ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200'
+            }`}
+          >
+            <Book className="w-4 h-4 md:w-5 md:h-5" />
+            <span className="hidden sm:inline">単語帳</span>
+            <span className="sm:hidden">単語</span>
+            <span className="text-xs">({vocabularyNotes.length})</span>
+          </button>
+          <button
+            onClick={() => setCurrentView('resumes')}
+            className={`flex items-center gap-1 md:gap-2 px-2 md:px-4 py-1.5 md:py-2 rounded-lg transition text-sm md:text-base whitespace-nowrap ${
+              currentView === 'resumes' ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200'
+            }`}
+          >
+            <FileText className="w-4 h-4 md:w-5 md:h-5" />
+            <span className="hidden sm:inline">履歴書</span>
+            <span className="sm:hidden">CV</span>
+            <span className="text-xs">({resumes.length})</span>
+          </button>
           </div>
-        </nav>
+        </div>
+      </nav>
 
+      <div className="max-w-7xl mx-auto px-3 md:px-4 py-4 md:py-8">
         {error && (
           <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6 flex items-center justify-between">
             <span>{error}</span>
@@ -2675,35 +2694,35 @@ function App() {
                 ) : (
                   <div className="space-y-4">
                     {vocabularyNotes.map((note) => (
-                      <div key={note.id} className="border rounded-lg p-4 bg-gray-50" onMouseUp={handleTextSelection}>
+                      <div key={note.id} className="border rounded-lg p-3 md:p-4 bg-gray-50" onMouseUp={handleTextSelection}>
                         <div className="flex items-start justify-between mb-3">
-                          <div>
-                        <h3 className="text-xl font-bold text-blue-700 mb-1">{note.word}</h3>
-                        <p className="text-gray-600">{note.translation}</p>
+                          <div className="flex-1 min-w-0 pr-2">
+                        <h3 className="text-lg md:text-xl font-bold text-blue-700 mb-1 break-words">{note.word}</h3>
+                        <p className="text-sm md:text-base text-gray-600 break-words">{note.translation}</p>
                       </div>
                       <button
                         onClick={() => handleDeleteVocabulary(note.id)}
-                        className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
+                        className="p-1.5 md:p-2 text-red-600 hover:bg-red-50 rounded-lg flex-shrink-0"
                       >
-                        <Trash2 className="w-5 h-5" />
+                        <Trash2 className="w-4 h-4 md:w-5 md:h-5" />
                       </button>
                     </div>
 
                     {note.explanation && (
                       <div className="mb-3">
-                        <h4 className="font-semibold text-sm mb-1">解説:</h4>
-                        <p className="text-sm text-gray-700">{note.explanation}</p>
+                        <h4 className="font-semibold text-xs md:text-sm mb-1">解説:</h4>
+                        <p className="text-xs md:text-sm text-gray-700 break-words">{note.explanation}</p>
                       </div>
                     )}
 
                     {note.example_sentences && note.example_sentences.length > 0 && (
                       <div className="mb-3">
-                        <h4 className="font-semibold text-sm mb-2">例文:</h4>
+                        <h4 className="font-semibold text-xs md:text-sm mb-2">例文:</h4>
                         <div className="space-y-2">
                           {note.example_sentences.map((example, idx) => (
-                            <div key={idx} className="bg-white p-2 rounded text-sm">
-                              <p className="text-gray-800 mb-1">{example.japanese}</p>
-                              <p className="text-gray-600">{example.chinese}</p>
+                            <div key={idx} className="bg-white p-2 md:p-3 rounded text-xs md:text-sm">
+                              <p className="text-gray-800 mb-1 break-words">{example.japanese}</p>
+                              <p className="text-gray-600 break-words">{example.chinese}</p>
                             </div>
                           ))}
                         </div>
@@ -2711,7 +2730,7 @@ function App() {
                     )}
 
                     {note.tags && note.tags.length > 0 && (
-                      <div className="flex flex-wrap gap-2">
+                      <div className="flex flex-wrap gap-1.5 md:gap-2">
                         {note.tags.map((tag, idx) => (
                           <span key={idx} className="px-2 py-1 bg-purple-100 text-purple-700 text-xs rounded">
                             {tag}
