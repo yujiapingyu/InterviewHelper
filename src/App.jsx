@@ -119,6 +119,9 @@ function App() {
 
   // Toast notification state
   const [toast, setToast] = useState(null);
+  
+  // Onboarding guide state
+  const [showOnboardingGuide, setShowOnboardingGuide] = useState(false);
 
   // Question expand state
   const [expandedQuestions, setExpandedQuestions] = useState(new Set());
@@ -147,6 +150,195 @@ function App() {
       return () => clearTimeout(timer);
     }
   }, [countdown]);
+
+  // Multi-language text
+  const getText = (key) => {
+    const texts = {
+      // Navigation
+      home: { ja: 'ホーム', zh: '首页' },
+      questions: { ja: '質問', zh: '问题' },
+      practice: { ja: '練習', zh: '练习' },
+      favorites: { ja: 'お気に入り', zh: '收藏' },
+      vocabulary: { ja: '単語帳', zh: '单词本' },
+      resumes: { ja: '履歴書', zh: '简历' },
+      credits: { ja: 'クレジット', zh: '积分' },
+      settings: { ja: '設定', zh: '设置' },
+      logout: { ja: 'ログアウト', zh: '退出登录' },
+      admin: { ja: '管理', zh: '管理' },
+      
+      // Onboarding
+      uploadResume: {
+        ja: '履歴書をアップロードして、パーソナライズされた面接練習を始めましょう！',
+        zh: '上传简历，开始个性化面试练习！',
+      },
+      uploadResumeDesc: {
+        ja: '履歴書をアップロードすると、あなたの経験やスキルに基づいた面接質問が自動生成されます。さらに、専門用語チェックで単語帳を充実させることができます。',
+        zh: '上传简历后，系统会根据您的经验和技能自动生成面试问题。此外，您还可以通过专业术语检测来丰富您的单词本。',
+      },
+      uploadNow: { ja: '今すぐアップロード', zh: '立即上传' },
+      
+      onboardingTitle: {
+        ja: '🎉 専門用語の学習を始めましょう！',
+        zh: '🎉 开始学习专业术语吧！',
+      },
+      onboardingMessage: {
+        ja: `おめでとうございます！単語帳に専門用語が追加されました。
+
+次のステップ：
+• 📝 質問を生成して、面接練習を始める
+• 🔍 質問を分析して、より多くの専門用語を発見
+• 💾 重要な単語を保存して、いつでも復習
+
+継続的な学習が、面接成功への鍵です！`,
+        zh: `恭喜！已将专业术语添加到单词本。
+
+下一步：
+• 📝 生成问题，开始面试练习
+• 🔍 分析问题，发现更多专业术语
+• 💾 保存重要单词，随时复习
+
+持续学习是面试成功的关键！`,
+      },
+      gotIt: { ja: '分かりました', zh: '知道了' },
+      
+      // Login & Register
+      appTitle: { ja: '日本面接練習器', zh: '日语面试练习器' },
+      appSubtitle: { ja: 'Japanese Interview Coach', zh: 'Japanese Interview Coach' },
+      emailLabel: { ja: 'メールアドレス', zh: '邮箱地址' },
+      passwordLabel: { ja: 'パスワード', zh: '密码' },
+      loginButton: { ja: 'ログイン', zh: '登录' },
+      registerButton: { ja: '登録', zh: '注册' },
+      createAccount: { ja: 'アカウントを作成', zh: '创建账号' },
+      backToLogin: { ja: 'ログインに戻る', zh: '返回登录' },
+      newUserRegister: { ja: '新規登録', zh: '新用户注册' },
+      createAccountSubtitle: { ja: 'Create Account', zh: 'Create Account' },
+      usernameLabel: { ja: 'ユーザー名（任意）', zh: '用户名（可选）' },
+      usernamePlaceholder: { ja: '山田太郎', zh: '张三' },
+      sendCode: { ja: 'コード送信', zh: '发送验证码' },
+      verificationCodeLabel: { ja: '認証コード', zh: '验证码' },
+      verificationCodePlaceholder: { ja: '6桁の認証コード', zh: '6位验证码' },
+      emailError: { ja: '有効なメールアドレスを入力してください', zh: '请输入有效的邮箱地址' },
+      codeSent: { ja: '✉️ 認証コードを送信しました。メールをご確認ください。', zh: '✉️ 验证码已发送，请查收邮件' },
+      noChanges: { ja: '変更がありません', zh: '没有修改' },
+      settingsSaved: { ja: '✅ 設定を保存しました！', zh: '✅ 设置保存成功！' },
+      settingsSaveFailed: { ja: '❌ 設定の保存に失敗しました', zh: '❌ 设置保存失败' },
+      loadingFailed: { ja: '❌ 履歴の読み込みに失敗しました', zh: '❌ 加载历史记录失败' },
+      loading: { ja: '読み込み中...', zh: '加载中...' },
+      
+      // Home page
+      startInterview: { ja: '面接練習を始めましょう', zh: '开始面试练习' },
+      homeDesc: { ja: 'カテゴリを選択して、日本語面接の練習を開始してください。AIがあなたの回答を分析し、フィードバックを提供します。', zh: '选择分类，开始日语面试练习。AI将分析您的回答并提供反馈。' },
+      hrCategory: { ja: 'HR / 一般質問', zh: 'HR / 综合问题' },
+      hrDesc: { ja: '志望動機、自己PR、キャリアプランなど', zh: '求职动机、自我介绍、职业规划等' },
+      techCategory: { ja: 'Tech / 技術質問', zh: 'Tech / 技术问题' },
+      techDesc: { ja: 'プロジェクト経験、技術スタック、問題解決など', zh: '项目经验、技术栈、问题解决等' },
+      prepMethod: { ja: '💡 PREP法を意識しましょう', zh: '💡 注意使用PREP法' },
+      prepPoint: { ja: 'Point: 結論を先に述べる', zh: 'Point: 先说结论' },
+      prepReason: { ja: 'Reason: その理由を説明する', zh: 'Reason: 说明理由' },
+      prepExample: { ja: 'Example: 具体例を示す', zh: 'Example: 举例说明' },
+      prepPointAgain: { ja: 'Point: 再度結論を述べる', zh: 'Point: 再次总结' },
+      availableQuestions: { ja: '利用可能な質問', zh: '可用问题数' },
+      favoritesCount: { ja: 'お気に入り', zh: '收藏数' },
+      uploadedResumes: { ja: 'アップロード済み履歴書', zh: '已上传简历' },
+      questionCount: { ja: '問', zh: '个问题' },
+      
+      // Random practice
+      randomPractice: { ja: 'ランダム面接練習', zh: '随机面试练习' },
+      randomDesc: { ja: 'カテゴリを選択すると、ランダムに質問が選ばれます。実際の面接のような緊張感を体験できます！', zh: '选择分类后，将随机抽取问题。体验真实面试的紧张感！' },
+      allQuestions: { ja: 'すべての質問', zh: '所有问题' },
+      randomFromAll: { ja: 'HRとTechからランダム', zh: '从HR和Tech中随机' },
+      hrQuestions: { ja: 'HR質問', zh: 'HR问题' },
+      techQuestions: { ja: 'Tech質問', zh: 'Tech问题' },
+      
+      // Question management
+      questionManagement: { ja: '質問管理', zh: '问题管理' },
+      manualAdd: { ja: '手動追加', zh: '手动添加' },
+      addButton: { ja: '追加', zh: '添加' },
+      editQuestion: { ja: '質問を編集', zh: '编辑问题' },
+      addNewQuestion: { ja: '新しい質問を追加', zh: '添加新问题' },
+      categoryLabel: { ja: 'カテゴリ', zh: '分类' },
+      hrGeneral: { ja: 'HR / 一般', zh: 'HR / 综合' },
+      techTechnical: { ja: 'Tech / 技術', zh: 'Tech / 技术' },
+      questionJa: { ja: '質問（日本語）', zh: '问题（日语）' },
+      questionZh: { ja: '質問（中国語）', zh: '问题（中文）' },
+      modelAnswer: { ja: '模範回答（PREP法）', zh: '标准答案（PREP法）' },
+      answerTips: { ja: '回答のコツ（カンマ区切り）', zh: '回答技巧（逗号分隔）' },
+      tipsPlaceholder: { ja: 'コツ1, コツ2, コツ3', zh: '技巧1, 技巧2, 技巧3' },
+      summaryLabel: { ja: '要約（英語、AI重複チェック用）', zh: '摘要（英文，用于AI去重）' },
+      saveButton: { ja: '保存', zh: '保存' },
+      cancelButton: { ja: 'キャンセル', zh: '取消' },
+      
+      // Practice page
+      aiGenerated: { ja: 'AI生成', zh: 'AI生成' },
+      answerTipsTitle: { ja: '💡 回答のコツ', zh: '💡 回答技巧' },
+      yourAnswer: { ja: 'あなたの回答', zh: '你的回答' },
+      voiceAnswer: { ja: '音声で回答', zh: '语音回答' },
+      recording: { ja: '録音中...', zh: '录音中...' },
+      answerPlaceholder: { ja: 'ここに回答を入力してください。音声で回答することもできます。', zh: '请在此输入回答。您也可以使用语音回答。' },
+      answerRequired: { ja: '回答を入力してください', zh: '请输入回答' },
+      
+      // Practice page - more
+      aiAnalyzing: { ja: 'AIが分析中...', zh: 'AI分析中...' },
+      getFeedback: { ja: 'AIフィードバックを取得', zh: '获取AI反馈' },
+      skipToNext: { ja: '次へスキップ', zh: '跳到下一题' },
+      aiFeedback: { ja: 'AIフィードバック', zh: 'AI反馈' },
+      score: { ja: 'スコア', zh: '得分' },
+      goodPoints: { ja: '良い点', zh: '优点' },
+      improvements: { ja: '改善点', zh: '改进点' },
+      questionsGenerated: { ja: '個の新しい', zh: '个新' },
+      questionsGeneratedSuffix: { ja: '質問を生成しました！', zh: '問題已生成！' },
+      aiQuestionGen: { ja: 'AI質問生成', zh: 'AI问题生成' },
+      
+      // Empty states
+      noQuestions: { ja: '質問がありません。AI生成または手動で追加してください。', zh: '暂无问题。请使用AI生成或手动添加。' },
+      noQuestionsInCategory: { ja: 'このカテゴリに質問がありません', zh: '该分类下暂无问题' },
+      noFavorites: { ja: 'お気に入りがありません。質問を★マークでお気に入りに追加してください。', zh: '暂无收藏。点击问题的★标记添加到收藏。' },
+      
+      // Vocabulary help
+      vocabHelpTitle: { ja: '💡 使い方', zh: '💡 使用方法' },
+      vocabHelpDesc: { ja: '質問や説明文で分からない単語を選択すると浮かび上がる放大鏡アイコンをクリックすると、AIが翻訳・解説・例文を提供します。', zh: '选中问题或说明中不懂的单词，点击弹出的放大镜图标，AI将提供翻译、解释和例句。' },
+      
+      // Vocabulary analysis
+      analyzing: { ja: '分析中...', zh: '分析中...' },
+      aiAnalyze: { ja: 'AI分析', zh: 'AI分析' },
+      analyzeWord: { ja: '分析', zh: '分析' },
+      
+      // Misc
+      confirmDelete: { ja: '本当にこの質問を削除しますか？', zh: '确定要删除这个问题吗？' },
+      deleteFailed: { ja: '質問の削除に失敗しました', zh: '删除问题失败' },
+      selectCategory: { ja: '生成する質問のカテゴリと数量を選択してください', zh: '请选择生成问题的分类和数量' },
+      displayLanguage: { ja: '🌏 表示言語 / Display Language', zh: '🌏 显示语言 / Display Language' },
+      selectDisplayLang: { ja: 'システムの表示言語を選択してください', zh: '选择系统显示语言' },
+      showHide: { ja: '表示', zh: '显示' },
+      hide: { ja: '隠す', zh: '隐藏' },
+      closeButton: { ja: '閉じる', zh: '关闭' },
+      editButton: { ja: '編集', zh: '编辑' },
+      deleteButton: { ja: '削除', zh: '删除' },
+      editWord: { ja: '単語を編集', zh: '编辑单词' },
+      perPage: { ja: '件/ページ', zh: '条/页' },
+      points: { ja: 'ポイント', zh: '积分' },
+      importDoc: { ja: '文書導入', zh: '导入文档' },
+      import: { ja: '導入', zh: '导入' },
+      aiGenShort: { ja: 'AI生成', zh: 'AI生成' },
+      practiceShort: { ja: '練習', zh: '练习' },
+      modelAnswerLabel: { ja: '📝 模範回答', zh: '📝 标准答案' },
+      answerPointsLabel: { ja: '💡 回答のポイント', zh: '💡 回答要点' },
+      yourAnswerLabel: { ja: 'あなたの回答', zh: '你的回答' },
+      overallComment: { ja: '総評', zh: '总评' },
+      improvementAdvice: { ja: '改善アドバイス', zh: '改进建议' },
+      revisedVersion: { ja: '修正版（商務日本語）', zh: '修订版（商务日语）' },
+      secondsShort: { ja: 's', zh: '秒' },
+      
+      // Credits
+      currentBalance: { ja: '現在の残高', zh: '当前余额' },
+      recharge: { ja: 'チャージ', zh: '充值' },
+      pointRecharge: { ja: 'ポイントチャージ', zh: '积分充值' },
+    };
+    
+    // Default to Chinese, fallback to Japanese
+    const lang = currentUser?.target_language || 'zh';
+    return texts[key]?.[lang] || texts[key]?.['zh'] || '';
+  };
 
   useEffect(() => {
     if (countdown > 0) {
@@ -266,7 +458,7 @@ function App() {
 
   const handleSendCode = async () => {
     if (!email || !email.includes('@')) {
-      setError('有効なメールアドレスを入力してください');
+      setError(getText('emailError'));
       return;
     }
 
@@ -277,7 +469,7 @@ function App() {
       await auth.sendVerificationCode(email);
       setCodeSent(true);
       setCountdown(60);
-      alert('認証コードを送信しました。メールをご確認ください。');
+      showToast(getText('codeSent'), 'success');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -319,7 +511,8 @@ function App() {
     setSettingsForm({
       notion_api_key: '', // Don't prefill truncated value
       notion_database_id: '', // Don't prefill truncated value  
-      username: currentUser.username || ''
+      username: currentUser.username || '',
+      target_language: currentUser.target_language || 'ja'
     });
     setShowApiKey(false); // Reset visibility
     setShowSettingsModal(true);
@@ -336,6 +529,10 @@ function App() {
         payload.username = settingsForm.username;
       }
       
+      if (settingsForm.target_language && settingsForm.target_language !== currentUser.target_language) {
+        payload.target_language = settingsForm.target_language;
+      }
+      
       // Only update Notion keys if user has entered something
       if (settingsForm.notion_api_key && settingsForm.notion_api_key.trim()) {
         payload.notion_api_key = settingsForm.notion_api_key.trim();
@@ -346,7 +543,7 @@ function App() {
       }
       
       if (Object.keys(payload).length === 0) {
-        alert('変更がありません');
+        showToast(getText('noChanges'), 'warning');
         setShowSettingsModal(false);
         return;
       }
@@ -355,10 +552,13 @@ function App() {
       setCurrentUser(updatedUser);
       setNotionEnabled(updatedUser.notion_configured);
       setShowSettingsModal(false);
-      alert('設定を保存しました！');
+      
+      const lang = updatedUser.target_language || 'zh';
+      const message = lang === 'zh' ? getText('settingsSaved') : getText('settingsSaved');
+      showToast(message, 'success');
     } catch (err) {
       setError(err.message);
-      alert('設定の保存に失敗しました: ' + err.message);
+      showToast(getText('settingsSaveFailed') + ': ' + err.message, 'error');
     } finally {
       setLoading(false);
     }
@@ -372,7 +572,7 @@ function App() {
       setCreditsHistory(history);
       setShowCreditsModal(true);
     } catch (err) {
-      alert('履歴の読み込みに失敗しました: ' + err.message);
+      showToast(getText('loadingFailed') + ': ' + err.message, 'error');
     } finally {
       setLoading(false);
     }
@@ -480,7 +680,7 @@ function App() {
       if (question) {
         startPractice(question);
       } else {
-        setError('この カテゴリに質問がありません');
+        setError(getText('noQuestionsInCategory'));
       }
     } catch (err) {
       setError('ランダム質問の取得に失敗しました: ' + err.message);
@@ -501,7 +701,7 @@ function App() {
         setSelectedQuestion(question);
         setCurrentView('practice');
       } else {
-        setError('このカテゴリに質問がありません');
+        setError(getText('noQuestionsInCategory'));
       }
     } catch (err) {
       setError('次の質問の取得に失敗しました: ' + err.message);
@@ -546,7 +746,7 @@ function App() {
 
   const handleSubmitAnswer = async () => {
     if (!userAnswer.trim()) {
-      setError('回答を入力してください');
+      setError(getText('answerRequired'));
       return;
     }
 
@@ -620,7 +820,7 @@ function App() {
 
   const handleSubmitFollowUpAnswer = async () => {
     if (!followUpAnswer.trim()) {
-      setError('回答を入力してください');
+      setError(getText('answerRequired'));
       return;
     }
 
@@ -643,7 +843,8 @@ function App() {
       
       // Show whether more follow-ups are recommended
       if (!evaluation.needsMoreFollowUp) {
-        alert('素晴らしい回答です！この質問の練習は完了です。');
+        showToast('🎉 素晴らしい回答です！この質問の練習は完了です。', 'success');
+        setSelectedQuestion(null);
       }
     } catch (err) {
       setError('回答の評価に失敗しました: ' + err.message);
@@ -694,7 +895,7 @@ function App() {
       setFavorites(updatedFavorites.favorites || updatedFavorites);
       setFavoritesTotal(updatedFavorites.total || (updatedFavorites.favorites || updatedFavorites).length);
       
-      alert('対話を完了し、お気に入りに保存しました！');
+      showToast('⭐ 対話を完了し、お気に入りに保存しました！', 'success');
       
       // Reset conversation state
       setConversationMode(false);
@@ -756,7 +957,7 @@ function App() {
 
   const handleSaveVocabulary = async () => {
     if (!vocabularyAnalysis || !selectedText) {
-      alert('保存失败：没有选择单词');
+      showToast('⚠️ 保存失败：没有选择单词', 'warning');
       return;
     }
     
@@ -820,7 +1021,7 @@ function App() {
 
   const startReviewMode = () => {
     if (vocabularyNotes.length === 0) {
-      alert('还没有单词可以复习！');
+      showToast('📚 还没有单词可以复习！', 'warning');
       return;
     }
     setReviewMode(true);
@@ -923,7 +1124,7 @@ function App() {
   };
 
   const handleDeleteQuestion = async (questionId) => {
-    if (!confirm('本当にこの質問を削除しますか？')) return;
+    if (!confirm(getText('confirmDelete'))) return;
 
     try {
       await questionsAPI.delete(questionId);
@@ -931,7 +1132,7 @@ function App() {
       setQuestions(updatedQuestions.questions || updatedQuestions);
       setQuestionsTotal(updatedQuestions.total || (updatedQuestions.questions || updatedQuestions).length);
     } catch (err) {
-      setError('質問の削除に失敗しました: ' + err.message);
+      setError(getText('deleteFailed') + ': ' + err.message);
     }
   };
 
@@ -956,9 +1157,22 @@ function App() {
       // Refresh credits after AI operation
       await refreshUserCredits();
       
-      alert(`${count}個の新しい${category}質問を生成しました！`);
+      showToast(`✨ ${count}${getText('questionsGenerated')}${category}${getText('questionsGeneratedSuffix')}`, 'success');
     } catch (err) {
-      setError('質問の生成に失敗しました: ' + err.message);
+      console.error('Generate questions error:', err);
+      
+      // Check if it's a resume required error
+      if (err.message && err.message.includes('Resume required')) {
+        const lang = currentUser?.target_language || 'ja';
+        const message = lang === 'zh' 
+          ? '⚠️ 请先上传简历再生成问题。简历可以帮助我们生成更符合您背景的面试问题。'
+          : '⚠️ 質問を生成する前に履歴書をアップロードしてください。履歴書があれば、あなたの背景に合った面接質問を生成できます。';
+        showToast(message, 'warning');
+        setShowGenerateModal(false);
+        setTimeout(() => setCurrentView('resumes'), 1500);
+      } else {
+        setError('質問の生成に失敗しました: ' + err.message);
+      }
     } finally {
       setLoading(false);
     }
@@ -988,7 +1202,7 @@ function App() {
       setQuestionsTotal(updatedQuestions.total || (updatedQuestions.questions || updatedQuestions).length);
       setShowImportModal(false);
       setImportFile(null);
-      alert(result.message);
+      showToast(result.message, 'success');
     } catch (err) {
       setError('文書のインポートに失敗しました: ' + err.message);
     } finally {
@@ -1019,7 +1233,7 @@ function App() {
       // Refresh credits after AI operation
       await refreshUserCredits();
       
-      alert('質問の解析が完了しました！');
+      showToast('✅ 質問の解析が完了しました！', 'success');
     } catch (err) {
       setError('質問の解析に失敗しました: ' + err.message);
     } finally {
@@ -1044,7 +1258,7 @@ function App() {
       setResumes(updatedResumes);
       
       setError('');
-      alert('履歴書を正常にアップロードしました！');
+      showToast('✅ 履歴書を正常にアップロードしました！', 'success');
       
       // Check if user has taken vocab test before
       console.log('🔍 Checking vocab test status...');
@@ -1124,7 +1338,10 @@ function App() {
         const updatedVocab = await vocabularyAPI.getAll(vocabularyPage, vocabularyPerPage);
         setVocabularyNotes(updatedVocab.notes || updatedVocab);
         setVocabularyTotal(updatedVocab.total || (updatedVocab.notes || updatedVocab).length);
-        alert(`${unknownWords.length}個の専門用語を単語帳に追加しました！`);
+        showToast(`📚 ${unknownWords.length}個の専門用語を単語帳に追加しました！`, 'success');
+        
+        // Show onboarding guide after completing vocab test
+        setTimeout(() => setShowOnboardingGuide(true), 1000);
       } catch (err) {
         console.error('Failed to save vocabulary:', err);
       }
@@ -1278,10 +1495,10 @@ function App() {
             onChange={(e) => onItemsPerPageChange(parseInt(e.target.value))}
             className="ml-4 px-2 py-1 border border-gray-300 rounded text-sm"
           >
-            <option value={10}>10件/ページ</option>
-            <option value={20}>20件/ページ</option>
-            <option value={50}>50件/ページ</option>
-            <option value={100}>100件/ページ</option>
+            <option value={10}>10{getText('perPage')}</option>
+            <option value={20}>20{getText('perPage')}</option>
+            <option value={50}>50{getText('perPage')}</option>
+            <option value={100}>100{getText('perPage')}</option>
           </select>
         )}
       </div>
@@ -1294,13 +1511,13 @@ function App() {
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
           <div className="text-center mb-8">
-            <h1 className="text-3xl font-bold text-gray-800 mb-2">日本面接練習器</h1>
-            <p className="text-gray-600">Japanese Interview Coach</p>
+            <h1 className="text-3xl font-bold text-gray-800 mb-2">{getText('appTitle')}</h1>
+            <p className="text-gray-600">{getText('appSubtitle')}</p>
           </div>
 
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">メールアドレス</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{getText('emailLabel')}</label>
               <input
                 type="email"
                 value={email}
@@ -1312,7 +1529,7 @@ function App() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">パスワード</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{getText('passwordLabel')}</label>
               <input
                 type="password"
                 value={password}
@@ -1335,7 +1552,7 @@ function App() {
               className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <LogIn className="w-5 h-5" />}
-              ログイン
+              {getText('loginButton')}
             </button>
           </form>
 
@@ -1344,7 +1561,7 @@ function App() {
               onClick={() => setCurrentView('register')}
               className="text-blue-600 hover:underline"
             >
-              アカウントを作成
+              {getText('createAccount')}
             </button>
           </div>
         </div>
@@ -1358,24 +1575,24 @@ function App() {
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
           <div className="text-center mb-8">
-            <h1 className="text-3xl font-bold text-gray-800 mb-2">新規登録</h1>
-            <p className="text-gray-600">Create Account</p>
+            <h1 className="text-3xl font-bold text-gray-800 mb-2">{getText('newUserRegister')}</h1>
+            <p className="text-gray-600">{getText('createAccountSubtitle')}</p>
           </div>
 
           <form onSubmit={handleRegister} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">ユーザー名（任意）</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{getText('usernameLabel')}</label>
               <input
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="山田太郎"
+                placeholder={getText('usernamePlaceholder')}
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">メールアドレス</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{getText('emailLabel')}</label>
               <div className="flex gap-2">
                 <input
                   type="email"
@@ -1391,19 +1608,19 @@ function App() {
                   disabled={loading || countdown > 0 || !email}
                   className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap text-sm"
                 >
-                  {countdown > 0 ? `${countdown}s` : 'コード送信'}
+                  {countdown > 0 ? `${countdown}${getText('secondsShort')}` : getText('sendCode')}
                 </button>
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">認証コード</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{getText('verificationCodeLabel')}</label>
               <input
                 type="text"
                 value={verificationCode}
                 onChange={(e) => setVerificationCode(e.target.value)}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="6桁の認証コード"
+                placeholder={getText('verificationCodePlaceholder')}
                 required
                 maxLength={6}
                 pattern="\d{6}"
@@ -1411,7 +1628,7 @@ function App() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">パスワード</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{getText('passwordLabel')}</label>
               <input
                 type="password"
                 value={password}
@@ -1435,7 +1652,7 @@ function App() {
               className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <User className="w-5 h-5" />}
-              登録
+              {getText('registerButton')}
             </button>
           </form>
 
@@ -1444,7 +1661,7 @@ function App() {
               onClick={() => setCurrentView('login')}
               className="text-blue-600 hover:underline"
             >
-              ログインに戻る
+              {getText('backToLogin')}
             </button>
           </div>
         </div>
@@ -1458,7 +1675,7 @@ function App() {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <Loader2 className="w-12 h-12 text-blue-600 animate-spin mx-auto mb-4" />
-          <p className="text-gray-600">読み込み中...</p>
+          <p className="text-gray-600">{getText('loading')}</p>
         </div>
       </div>
     );
@@ -1478,7 +1695,7 @@ function App() {
         <div className="max-w-7xl mx-auto px-3 md:px-4 py-3 md:py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 md:gap-4 flex-1 min-w-0">
-              <h1 className="text-base md:text-2xl font-bold text-gray-800 truncate">日本面接練習器</h1>
+              <h1 className="text-base md:text-2xl font-bold text-gray-800 truncate">{getText('appTitle')}</h1>
               <span className="text-xs md:text-sm text-gray-500 hidden sm:inline">ようこそ、{currentUser.username}さん</span>
             </div>
             <div className="flex items-center gap-1 md:gap-3">
@@ -1490,7 +1707,7 @@ function App() {
               >
                 <Coins className="w-4 h-4 md:w-5 md:h-5" />
                 <span className="font-semibold">{aiCredits}</span>
-                <span className="text-xs hidden md:inline">ポイント</span>
+                <span className="text-xs hidden md:inline">{getText('points')}</span>
               </button>
               
               {/* Settings Button */}
@@ -1508,12 +1725,12 @@ function App() {
                 className="hidden md:flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition"
               >
                 <LogOut className="w-5 h-5" />
-                ログアウト
+                {getText('logout')}
               </button>
               <button
                 onClick={handleLogout}
                 className="md:hidden p-2 text-gray-700 hover:bg-gray-100 rounded-lg transition"
-                title="ログアウト"
+                title={getText('logout')}
               >
                 <LogOut className="w-4 h-4" />
               </button>
@@ -1533,7 +1750,7 @@ function App() {
             }`}
           >
             <Home className="w-5 h-5" />
-            <span className="hidden sm:inline">ホーム</span>
+            <span className="hidden sm:inline">{getText('home')}</span>
           </button>
           <button
             onClick={() => setCurrentView('random')}
@@ -1542,8 +1759,8 @@ function App() {
             }`}
           >
             <Shuffle className="w-5 h-5" />
-            <span className="hidden sm:inline">ランダム練習</span>
-            <span className="sm:hidden">練習</span>
+            <span className="hidden sm:inline">{getText('practice')}</span>
+            <span className="sm:hidden">{getText('practice')}</span>
           </button>
           <button
             onClick={() => setCurrentView('questions')}
@@ -1552,8 +1769,8 @@ function App() {
             }`}
           >
             <BookOpen className="w-5 h-5" />
-            <span className="hidden sm:inline">質問管理</span>
-            <span className="sm:hidden">質問</span>
+            <span className="hidden sm:inline">{getText('questions')}</span>
+            <span className="sm:hidden">{getText('questions')}</span>
           </button>
           <button
             onClick={() => setCurrentView('favorites')}
@@ -1562,7 +1779,7 @@ function App() {
             }`}
           >
             <Star className="w-5 h-5" />
-            <span className="hidden sm:inline">お気に入り ({favorites.length})</span>
+            <span className="hidden sm:inline">{getText('favorites')} ({favorites.length})</span>
             <span className="sm:hidden">★ {favorites.length}</span>
           </button>
           <button
@@ -1572,8 +1789,8 @@ function App() {
             }`}
           >
             <Book className="w-5 h-5" />
-            <span className="hidden sm:inline">単語帳 ({vocabularyNotes.length})</span>
-            <span className="sm:hidden">単語 {vocabularyNotes.length}</span>
+            <span className="hidden sm:inline">{getText('vocabulary')} ({vocabularyNotes.length})</span>
+            <span className="sm:hidden">{getText('vocabulary')} {vocabularyNotes.length}</span>
           </button>
           <button
             onClick={() => setCurrentView('resumes')}
@@ -1582,7 +1799,7 @@ function App() {
             }`}
           >
             <FileText className="w-5 h-5" />
-            <span className="hidden sm:inline">履歴書 ({resumes.length})</span>
+            <span className="hidden sm:inline">{getText('resumes')} ({resumes.length})</span>
             <span className="sm:hidden">CV {resumes.length}</span>
           </button>
           </div>
@@ -1601,9 +1818,9 @@ function App() {
         {currentView === 'random' && (
           <div className="space-y-6">
             <div className="bg-white rounded-lg shadow-sm p-6" onMouseUp={handleTextSelection}>
-              <h2 className="text-2xl font-bold mb-4">ランダム面接練習</h2>
+              <h2 className="text-2xl font-bold mb-4">{getText('randomPractice')}</h2>
               <p className="text-gray-600 mb-6">
-                カテゴリを選択すると、ランダムに質問が選ばれます。実際の面接のような緊張感を体験できます！
+                {getText('randomDesc')}
               </p>
 
               <div className="grid md:grid-cols-3 gap-4">
@@ -1614,9 +1831,9 @@ function App() {
                 >
                   <div className="text-center">
                     <Shuffle className="w-12 h-12 mx-auto mb-3 text-purple-600" />
-                    <h3 className="text-xl font-semibold mb-2">すべての質問</h3>
-                    <p className="text-gray-600 text-sm mb-4">HR と Tech から ランダム</p>
-                    <div className="text-purple-600 font-medium">{questions.length} 問</div>
+                    <h3 className="text-xl font-semibold mb-2">{getText('allQuestions')}</h3>
+                    <p className="text-gray-600 text-sm mb-4">{getText('randomFromAll')}</p>
+                    <div className="text-purple-600 font-medium">{questions.length} {getText('questionCount')}</div>
                   </div>
                 </button>
 
@@ -1627,10 +1844,10 @@ function App() {
                 >
                   <div className="text-center">
                     <User className="w-12 h-12 mx-auto mb-3 text-blue-600" />
-                    <h3 className="text-xl font-semibold mb-2">HR 質問</h3>
-                    <p className="text-gray-600 text-sm mb-4">志望動機、自己PR など</p>
+                    <h3 className="text-xl font-semibold mb-2">{getText('hrQuestions')}</h3>
+                    <p className="text-gray-600 text-sm mb-4">{getText('hrDesc')}</p>
                     <div className="text-blue-600 font-medium">
-                      {questions.filter(q => q.category === 'HR').length} 問
+                      {questions.filter(q => q.category === 'HR').length} {getText('questionCount')}
                     </div>
                   </div>
                 </button>
@@ -1642,10 +1859,10 @@ function App() {
                 >
                   <div className="text-center">
                     <BookOpen className="w-12 h-12 mx-auto mb-3 text-green-600" />
-                    <h3 className="text-xl font-semibold mb-2">Tech 質問</h3>
-                    <p className="text-gray-600 text-sm mb-4">技術スタック、経験 など</p>
+                    <h3 className="text-xl font-semibold mb-2">{getText('techQuestions')}</h3>
+                    <p className="text-gray-600 text-sm mb-4">{getText('techDesc')}</p>
                     <div className="text-green-600 font-medium">
-                      {questions.filter(q => q.category === 'Tech').length} 問
+                      {questions.filter(q => q.category === 'Tech').length} {getText('questionCount')}
                     </div>
                   </div>
                 </button>
@@ -1667,65 +1884,55 @@ function App() {
                     </div>
                   </div>
                   <div className="flex-1">
-                    <h3 className="text-xl font-bold mb-2">🎯 履歴書をアップロードして、パーソナライズされた面接練習を始めましょう！</h3>
+                    <h3 className="text-xl font-bold mb-2">🎯 {getText('uploadResume')}</h3>
                     <p className="text-gray-700 mb-4">
-                      履歴書をアップロードすると、あなたの経験やスキルに基づいた面接質問が自動生成されます。
-                      さらに、専門用語チェックで単語帳を充実させることができます。
+                      {getText('uploadResumeDesc')}
                     </p>
-                    <div className="flex flex-wrap gap-3">
-                      <button
-                        onClick={() => setCurrentView('resumes')}
-                        className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 font-semibold"
-                      >
-                        <Upload className="w-5 h-5" />
-                        今すぐアップロード
-                      </button>
-                      <button
-                        onClick={() => setCurrentView('questions')}
-                        className="px-6 py-3 bg-white border-2 border-blue-600 text-blue-600 rounded-lg hover:bg-blue-50 font-semibold"
-                      >
-                        後で、質問から始める
-                      </button>
-                    </div>
+                    <button
+                      onClick={() => setCurrentView('resumes')}
+                      className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 font-semibold"
+                    >
+                      <Upload className="w-5 h-5" />
+                      {getText('uploadNow')}
+                    </button>
                   </div>
                 </div>
               </div>
             )}
             
             <div className="bg-white rounded-lg shadow-sm p-6" onMouseUp={handleTextSelection}>
-              <h2 className="text-2xl font-bold mb-4">面接練習を始めましょう</h2>
+              <h2 className="text-2xl font-bold mb-4">{getText('startInterview')}</h2>
               <p className="text-gray-600 mb-6">
-                カテゴリを選択して、日本語面接の練習を開始してください。
-                AI が あなたの回答を分析し、フィードバックを提供します。
+                {getText('homeDesc')}
               </p>
 
               <div className="grid md:grid-cols-2 gap-4 mb-6">
                 <div className="border-2 border-blue-200 rounded-lg p-6 hover:border-blue-400 transition cursor-pointer"
                      onClick={() => { setCategoryFilter('HR'); setCurrentView('questions'); }}>
-                  <h3 className="text-xl font-semibold mb-2">HR / 一般質問</h3>
-                  <p className="text-gray-600 mb-4">志望動機、自己PR、キャリアプランなど</p>
+                  <h3 className="text-xl font-semibold mb-2">{getText('hrCategory')}</h3>
+                  <p className="text-gray-600 mb-4">{getText('hrDesc')}</p>
                   <div className="text-blue-600 font-medium">
-                    {questions.filter(q => q.category === 'HR').length} 問
+                    {questions.filter(q => q.category === 'HR').length} {getText('questionCount')}
                   </div>
                 </div>
 
                 <div className="border-2 border-green-200 rounded-lg p-6 hover:border-green-400 transition cursor-pointer"
                      onClick={() => { setCategoryFilter('Tech'); setCurrentView('questions'); }}>
-                  <h3 className="text-xl font-semibold mb-2">Tech / 技術質問</h3>
-                  <p className="text-gray-600 mb-4">プロジェクト経験、技術スタック、問題解決など</p>
+                  <h3 className="text-xl font-semibold mb-2">{getText('techCategory')}</h3>
+                  <p className="text-gray-600 mb-4">{getText('techDesc')}</p>
                   <div className="text-green-600 font-medium">
-                    {questions.filter(q => q.category === 'Tech').length} 問
+                    {questions.filter(q => q.category === 'Tech').length} {getText('questionCount')}
                   </div>
                 </div>
               </div>
 
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <h4 className="font-semibold mb-2">💡 PREP法を意識しましょう</h4>
+                <h4 className="font-semibold mb-2">{getText('prepMethod')}</h4>
                 <ul className="text-sm text-gray-700 space-y-1">
-                  <li><strong>Point:</strong> 結論を先に述べる</li>
-                  <li><strong>Reason:</strong> その理由を説明する</li>
-                  <li><strong>Example:</strong> 具体例を示す</li>
-                  <li><strong>Point:</strong> 再度結論を述べる</li>
+                  <li><strong>Point:</strong> {getText('prepPoint').replace('Point: ', '')}</li>
+                  <li><strong>Reason:</strong> {getText('prepReason').replace('Reason: ', '')}</li>
+                  <li><strong>Example:</strong> {getText('prepExample').replace('Example: ', '')}</li>
+                  <li><strong>Point:</strong> {getText('prepPointAgain').replace('Point: ', '')}</li>
                 </ul>
               </div>
             </div>
@@ -1734,15 +1941,15 @@ function App() {
             <div className="grid md:grid-cols-3 gap-4">
               <div className="bg-white rounded-lg shadow-sm p-6">
                 <div className="text-3xl font-bold text-blue-600">{questions.length}</div>
-                <div className="text-gray-600">利用可能な質問</div>
+                <div className="text-gray-600">{getText('availableQuestions')}</div>
               </div>
               <div className="bg-white rounded-lg shadow-sm p-6">
                 <div className="text-3xl font-bold text-green-600">{favorites.length}</div>
-                <div className="text-gray-600">お気に入り</div>
+                <div className="text-gray-600">{getText('favoritesCount')}</div>
               </div>
               <div className="bg-white rounded-lg shadow-sm p-6">
                 <div className="text-3xl font-bold text-purple-600">{resumes.length}</div>
-                <div className="text-gray-600">アップロード済み履歴書</div>
+                <div className="text-gray-600">{getText('uploadedResumes')}</div>
               </div>
             </div>
           </div>
@@ -1753,7 +1960,7 @@ function App() {
           <div className="space-y-6">
             <div className="bg-white rounded-lg shadow-sm p-6">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
-                <h2 className="text-xl md:text-2xl font-bold">質問管理</h2>
+                <h2 className="text-xl md:text-2xl font-bold">{getText('questionManagement')}</h2>
                 <div className="flex gap-2 flex-wrap">
                   <button
                     onClick={() => {
@@ -1771,16 +1978,16 @@ function App() {
                     className="flex items-center gap-2 px-3 md:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm md:text-base whitespace-nowrap"
                   >
                     <PlusCircle className="w-4 h-4 md:w-5 md:h-5" />
-                    <span className="hidden sm:inline">手動追加</span>
-                    <span className="sm:hidden">追加</span>
+                    <span className="hidden sm:inline">{getText('manualAdd')}</span>
+                    <span className="sm:hidden">{getText('addButton')}</span>
                   </button>
                   <button
                     onClick={() => setShowImportModal(true)}
                     className="flex items-center gap-2 px-3 md:px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm md:text-base whitespace-nowrap"
                   >
                     <FileUp className="w-4 h-4 md:w-5 md:h-5" />
-                    <span className="hidden sm:inline">文書導入</span>
-                    <span className="sm:hidden">導入</span>
+                    <span className="hidden sm:inline">{getText('importDoc')}</span>
+                    <span className="sm:hidden">{getText('import')}</span>
                   </button>
                   <button
                     onClick={openGenerateModal}
@@ -1788,7 +1995,7 @@ function App() {
                     className="flex items-center gap-2 px-3 md:px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm md:text-base whitespace-nowrap"
                   >
                     {loading ? <Loader2 className="w-4 h-4 md:w-5 md:h-5 animate-spin" /> : <RefreshCw className="w-4 h-4 md:w-5 md:h-5" />}
-                    <span className="hidden sm:inline">AI生成</span>
+                    <span className="hidden sm:inline">{getText('aiGenShort')}</span>
                     <span className="sm:hidden">AI</span>
                   </button>
                 </div>
@@ -1902,7 +2109,7 @@ function App() {
                               {catInfo.label}
                             </span>
                             {question.is_ai_generated === 1 && (
-                              <span className="px-2 py-1 text-xs rounded bg-purple-100 text-purple-700">AI生成</span>
+                              <span className="px-2 py-1 text-xs rounded bg-purple-100 text-purple-700">{getText('aiGenShort')}</span>
                             )}
                             <ChevronRight className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
                           </div>
@@ -1966,8 +2173,8 @@ function App() {
                             className="px-3 md:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-1 md:gap-2 text-sm md:text-base whitespace-nowrap"
                           >
                             <Play className="w-4 h-4" />
-                            <span className="hidden md:inline">練習</span>
-                            <span className="md:hidden">練習</span>
+                            <span className="hidden md:inline">{getText('practiceShort')}</span>
+                            <span className="md:hidden">{getText('practiceShort')}</span>
                           </button>
                         </div>
                       </div>
@@ -1977,7 +2184,7 @@ function App() {
                         <div className="mt-4 pt-4 border-t space-y-4">
                           {question.model_answer_ja && (
                             <div>
-                              <h4 className="font-semibold text-sm text-gray-700 mb-2">📝 模範回答:</h4>
+                              <h4 className="font-semibold text-sm text-gray-700 mb-2">{getText('modelAnswerLabel')}:</h4>
                               <div className="bg-gray-50 p-3 rounded-lg text-sm whitespace-pre-wrap text-gray-800">
                                 {question.model_answer_ja}
                               </div>
@@ -1985,7 +2192,7 @@ function App() {
                           )}
                           {question.tips_ja && question.tips_ja.length > 0 && (
                             <div>
-                              <h4 className="font-semibold text-sm text-gray-700 mb-2">💡 回答のポイント:</h4>
+                              <h4 className="font-semibold text-sm text-gray-700 mb-2">{getText('answerPointsLabel')}:</h4>
                               <ul className="space-y-1">
                                 {question.tips_ja.map((tip, idx) => (
                                   <li key={idx} className="text-sm text-gray-700 flex items-start gap-2">
@@ -2011,7 +2218,7 @@ function App() {
 
                 {filteredQuestions.length === 0 && (
                   <div className="text-center py-12 text-gray-500">
-                    質問がありません。AI生成または手動で追加してください。
+                    {getText('noQuestions')}
                   </div>
                 )}
               </div>
@@ -2043,24 +2250,24 @@ function App() {
         {currentView === 'editQuestion' && (
           <div className="bg-white rounded-lg shadow-sm p-6">
             <h2 className="text-2xl font-bold mb-6">
-              {editingQuestion ? '質問を編集' : '新しい質問を追加'}
+              {editingQuestion ? getText('editQuestion') : getText('addNewQuestion')}
             </h2>
 
             <div className="space-y-4">
               <div>
-                <label className="block font-medium mb-2">カテゴリ</label>
+                <label className="block font-medium mb-2">{getText('categoryLabel')}</label>
                 <select
                   value={questionForm.category}
                   onChange={(e) => setQuestionForm({...questionForm, category: e.target.value})}
                   className="w-full px-4 py-2 border rounded-lg"
                 >
-                  <option value="HR">HR / 一般</option>
-                  <option value="Tech">Tech / 技術</option>
+                  <option value="HR">{getText('hrGeneral')}</option>
+                  <option value="Tech">{getText('techTechnical')}</option>
                 </select>
               </div>
 
               <div>
-                <label className="block font-medium mb-2">質問（日本語）</label>
+                <label className="block font-medium mb-2">{getText('questionJa')}</label>
                 <textarea
                   value={questionForm.question_ja}
                   onChange={(e) => setQuestionForm({...questionForm, question_ja: e.target.value})}
@@ -2071,7 +2278,7 @@ function App() {
               </div>
 
               <div>
-                <label className="block font-medium mb-2">質問（中国語）</label>
+                <label className="block font-medium mb-2">{getText('questionZh')}</label>
                 <textarea
                   value={questionForm.question_zh}
                   onChange={(e) => setQuestionForm({...questionForm, question_zh: e.target.value})}
@@ -2081,7 +2288,7 @@ function App() {
               </div>
 
               <div>
-                <label className="block font-medium mb-2">模範回答（PREP法）</label>
+                <label className="block font-medium mb-2">{getText('modelAnswer')}</label>
                 <textarea
                   value={questionForm.model_answer_ja}
                   onChange={(e) => setQuestionForm({...questionForm, model_answer_ja: e.target.value})}
@@ -2092,7 +2299,7 @@ function App() {
               </div>
 
               <div>
-                <label className="block font-medium mb-2">回答のコツ（カンマ区切り）</label>
+                <label className="block font-medium mb-2">{getText('answerTips')}</label>
                 <input
                   type="text"
                   value={Array.isArray(questionForm.tips_ja) ? questionForm.tips_ja.join(', ') : ''}
@@ -2106,7 +2313,7 @@ function App() {
               </div>
 
               <div>
-                <label className="block font-medium mb-2">要約（英語、AI重複チェック用）</label>
+                <label className="block font-medium mb-2">{getText('summaryLabel')}</label>
                 <input
                   type="text"
                   value={questionForm.summary}
@@ -2123,13 +2330,13 @@ function App() {
                   className="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Check className="w-5 h-5" />}
-                  保存
+                  {getText('saveButton')}
                 </button>
                 <button
                   onClick={() => setCurrentView('questions')}
                   className="flex-1 bg-gray-200 py-2 rounded-lg hover:bg-gray-300"
                 >
-                  キャンセル
+                  {getText('cancelButton')}
                 </button>
               </div>
             </div>
@@ -2148,7 +2355,7 @@ function App() {
                     {selectedQuestion.category || 'HR'}
                   </span>
                   {selectedQuestion.is_ai_generated === 1 && (
-                    <span className="px-2 py-1 text-xs rounded bg-purple-100 text-purple-700">AI生成</span>
+                    <span className="px-2 py-1 text-xs rounded bg-purple-100 text-purple-700">{getText('aiGenerated')}</span>
                   )}
                 </div>
                 <button
@@ -2175,7 +2382,7 @@ function App() {
               {/* Tips */}
               {selectedQuestion.tips_ja && selectedQuestion.tips_ja.length > 0 && (
                 <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6" onMouseUp={handleTextSelection}>
-                  <h3 className="font-semibold mb-2">💡 回答のコツ</h3>
+                  <h3 className="font-semibold mb-2">{getText('answerTipsTitle')}</h3>
                   <ul className="list-disc list-inside space-y-1 text-sm">
                     {selectedQuestion.tips_ja.map((tip, idx) => (
                       <li key={idx}>{tip}</li>
@@ -2187,7 +2394,7 @@ function App() {
               {/* Answer Input */}
               <div className="mb-4">
                 <div className="flex items-center justify-between mb-2">
-                  <label className="font-medium">あなたの回答</label>
+                  <label className="font-medium">{getText('yourAnswer')}</label>
                   <div className="flex gap-2">
                     {!isRecording ? (
                       <button
@@ -2195,7 +2402,7 @@ function App() {
                         className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
                       >
                         <Mic className="w-5 h-5" />
-                        音声で回答
+                        {getText('voiceAnswer')}
                       </button>
                     ) : (
                       <button
@@ -2203,7 +2410,7 @@ function App() {
                         className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 animate-pulse"
                       >
                         <Mic className="w-5 h-5" />
-                        録音中...
+                        {getText('recording')}
                       </button>
                     )}
                   </div>
@@ -2213,7 +2420,7 @@ function App() {
                   onChange={(e) => setUserAnswer(e.target.value)}
                   className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500"
                   rows={8}
-                  placeholder="ここに回答を入力してください。音声で回答することもできます。"
+                  placeholder={getText('answerPlaceholder')}
                 />
               </div>
 
@@ -2225,12 +2432,12 @@ function App() {
                 {loading ? (
                   <>
                     <Loader2 className="w-5 h-5 animate-spin" />
-                    AIが分析中...
+                    {getText('aiAnalyzing')}
                   </>
                 ) : (
                   <>
                     <MessageSquare className="w-5 h-5" />
-                    AIフィードバックを取得
+                    {getText('getFeedback')}
                   </>
                 )}
               </button>
@@ -2242,18 +2449,18 @@ function App() {
                 className="w-full mt-3 bg-gray-100 text-gray-700 py-3 rounded-lg hover:bg-gray-200 disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 <ChevronRight className="w-5 h-5" />
-                次へスキップ
+                {getText('skipToNext')}
               </button>
             </div>
 
             {/* AI Feedback */}
             {aiFeedback && (
               <div className="bg-white rounded-lg shadow-sm p-6" onMouseUp={handleTextSelection}>
-                <h3 className="text-xl font-bold mb-4">AIフィードバック</h3>
+                <h3 className="text-xl font-bold mb-4">{getText('aiFeedback')}</h3>
                 
                 <div className="mb-6">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="font-semibold">スコア</span>
+                    <span className="font-semibold">{getText('score')}</span>
                     <span className="text-3xl font-bold text-blue-600">{aiFeedback.score}/100</span>
                   </div>
                   <div className="w-full bg-gray-200 rounded-full h-3">
@@ -2268,12 +2475,12 @@ function App() {
                 </div>
 
                 <div className="mb-6">
-                  <h4 className="font-semibold mb-2">総評</h4>
+                  <h4 className="font-semibold mb-2">{getText('overallComment')}</h4>
                   <p className="text-gray-700">{aiFeedback.feedback}</p>
                 </div>
 
                 <div className="mb-6">
-                  <h4 className="font-semibold mb-2">改善アドバイス</h4>
+                  <h4 className="font-semibold mb-2">{getText('improvementAdvice')}</h4>
                   <ul className="space-y-2">
                     {aiFeedback.advice?.map((item, idx) => (
                       <li key={idx} className="flex gap-2">
@@ -2285,7 +2492,7 @@ function App() {
                 </div>
 
                 <div>
-                  <h4 className="font-semibold mb-2">修正版（商務日本語）</h4>
+                  <h4 className="font-semibold mb-2">{getText('revisedVersion')}</h4>
                   <div className="bg-green-50 border border-green-200 rounded-lg p-4 whitespace-pre-wrap markdown-content">
                     <ReactMarkdown>{aiFeedback.correctedVersion}</ReactMarkdown>
                   </div>
@@ -2333,7 +2540,7 @@ function App() {
                           {turn.userAnswer && (
                             <>
                               <div className="mb-2">
-                                <h5 className="font-medium text-sm text-gray-700">あなたの回答:</h5>
+                                <h5 className="font-medium text-sm text-gray-700">{getText('yourAnswerLabel')}:</h5>
                                 <p className="text-gray-600 bg-white p-2 rounded">{turn.userAnswer}</p>
                               </div>
                               {turn.aiFeedback && (
@@ -2345,7 +2552,7 @@ function App() {
                                   <p className="text-sm text-gray-700">{turn.aiFeedback.feedback}</p>
                                   {turn.aiFeedback.improvements && turn.aiFeedback.improvements.length > 0 && (
                                     <div className="mt-2">
-                                      <p className="text-xs font-semibold text-gray-600">改善点:</p>
+                                      <p className="text-xs font-semibold text-gray-600">{getText('improvements')}:</p>
                                       <ul className="text-xs space-y-1 mt-1">
                                         {turn.aiFeedback.improvements.map((imp, i) => (
                                           <li key={i} className="text-gray-600">• {imp}</li>
@@ -2485,7 +2692,7 @@ function App() {
 
             {favorites.length === 0 ? (
               <div className="text-center py-12 text-gray-500">
-                お気に入りがありません。質問を★マークでお気に入りに追加してください。
+                {getText('noFavorites')}
               </div>
             ) : (
               <div className="space-y-6">
@@ -2661,7 +2868,7 @@ function App() {
                                             )}
                                             {turn.aiFeedback.strengths && turn.aiFeedback.strengths.length > 0 && (
                                               <div className="mt-1">
-                                                <p className="text-xs font-semibold text-green-600">良い点:</p>
+                                                <p className="text-xs font-semibold text-green-600">{getText('goodPoints')}:</p>
                                                 <ul className="text-xs text-gray-600 list-disc list-inside">
                                                   {turn.aiFeedback.strengths.map((s, i) => (
                                                     <li key={i}>{s}</li>
@@ -2671,7 +2878,7 @@ function App() {
                                             )}
                                             {turn.aiFeedback.improvements && turn.aiFeedback.improvements.length > 0 && (
                                               <div className="mt-1">
-                                                <p className="text-xs font-semibold text-orange-600">改善点:</p>
+                                                <p className="text-xs font-semibold text-orange-600">{getText('improvements')}:</p>
                                                 <ul className="text-xs text-gray-600 list-disc list-inside">
                                                   {turn.aiFeedback.improvements.map((s, i) => (
                                                     <li key={i}>{s}</li>
@@ -2849,7 +3056,7 @@ function App() {
               <>
                 <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
                   <p className="text-sm text-gray-700">
-                    💡 <strong>使い方:</strong> 質問や説明文で分からない単語を選択すると浮かび上がる放大鏡アイコンをクリックすると、AIが翻訳・解説・例文を提供します。
+                    <strong>{getText('vocabHelpTitle')}</strong> {getText('vocabHelpDesc')}
                   </p>
                 </div>
 
@@ -2870,7 +3077,7 @@ function App() {
                         <button
                           onClick={() => handleEditVocabulary(note)}
                           className="p-1.5 md:p-2 text-blue-600 hover:bg-blue-50 rounded-lg flex-shrink-0"
-                          title="編集"
+                          title={getText('editButton')}
                         >
                           <Edit className="w-4 h-4 md:w-5 md:h-5" />
                         </button>
@@ -3181,10 +3388,10 @@ function App() {
             onClick={handleAnalyzeVocabulary}
             disabled={loading}
             className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 shadow-lg disabled:opacity-50 transition-all hover:scale-105"
-            title={`分析「${selectedText}」`}
+            title={`${getText('analyzeWord')}「${selectedText}」`}
           >
             <Search className="w-4 h-4" />
-            <span className="text-sm font-medium">{loading ? '分析中...' : 'AI分析'}</span>
+            <span className="text-sm font-medium">{loading ? getText('analyzing') : getText('aiAnalyze')}</span>
           </button>
         </div>
       )}
@@ -3331,9 +3538,9 @@ function App() {
       {showGenerateModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
-            <h3 className="text-xl font-bold mb-4">AI質問生成</h3>
+            <h3 className="text-xl font-bold mb-4">{getText('aiQuestionGen')}</h3>
             <p className="text-gray-600 mb-4">
-              生成する質問のカテゴリと数量を選択してください
+              {getText('selectCategory')}
             </p>
 
             {error && (
@@ -3458,6 +3665,22 @@ function App() {
                       placeholder="山田太郎"
                     />
                   </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      {getText('displayLanguage')}
+                    </label>
+                    <select
+                      value={settingsForm.target_language || currentUser.target_language || 'ja'}
+                      onChange={(e) => setSettingsForm({ ...settingsForm, target_language: e.target.value })}
+                      className="w-full px-4 py-2 border rounded-lg bg-white"
+                    >
+                      <option value="ja">🇯🇵 日本語 (Japanese)</option>
+                      <option value="zh">🇨🇳 中文 (Chinese)</option>
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {getText('selectDisplayLang')}
+                    </p>
+                  </div>
                 </div>
               </div>
 
@@ -3496,7 +3719,7 @@ function App() {
                         type="button"
                         onClick={() => setShowApiKey(!showApiKey)}
                         className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-500 hover:text-gray-700 transition"
-                        title={showApiKey ? "隠す" : "表示"}
+                        title={showApiKey ? getText('hide') : getText('showHide')}
                       >
                         {showApiKey ? (
                           <EyeOff className="w-5 h-5" />
@@ -3595,15 +3818,15 @@ function App() {
               <div className="bg-gradient-to-r from-yellow-400 to-yellow-500 text-white rounded-lg p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-yellow-100 mb-1">現在の残高</p>
-                    <p className="text-4xl font-bold">{aiCredits} ポイント</p>
+                    <p className="text-yellow-100 mb-1">{getText('currentBalance')}</p>
+                    <p className="text-4xl font-bold">{aiCredits} {getText('points')}</p>
                   </div>
                   <button
                     onClick={() => setShowRechargeModal(true)}
                     className="bg-white text-yellow-600 px-6 py-3 rounded-lg hover:bg-yellow-50 transition flex items-center gap-2 font-semibold"
                   >
                     <CreditCard className="w-5 h-5" />
-                    チャージ
+                    {getText('recharge')}
                   </button>
                 </div>
               </div>
@@ -3698,7 +3921,7 @@ function App() {
                 onClick={() => setShowCreditsModal(false)}
                 className="w-full bg-gray-200 py-3 rounded-lg hover:bg-gray-300"
               >
-                閉じる
+                {getText('closeButton')}
               </button>
             </div>
           </div>
@@ -3712,7 +3935,7 @@ function App() {
             <div className="p-6 border-b flex items-center justify-between sticky top-0 bg-white z-10">
               <h2 className="text-2xl font-bold flex items-center gap-2">
                 <CreditCard className="w-6 h-6" />
-                ポイントチャージ
+                {getText('pointRecharge')}
               </h2>
               <button
                 onClick={() => {
@@ -3844,7 +4067,7 @@ function App() {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6">
-              <h2 className="text-2xl font-bold mb-4">単語を編集</h2>
+              <h2 className="text-2xl font-bold mb-4">{getText('editWord')}</h2>
               
               <div className="space-y-4">
                 <div>
@@ -3980,6 +4203,35 @@ function App() {
                   スキップ
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Onboarding Guide Modal */}
+      {showOnboardingGuide && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-lg w-full p-6 shadow-2xl">
+            <h2 className="text-2xl font-bold mb-4">{getText('onboardingTitle')}</h2>
+            <div className="text-gray-700 whitespace-pre-line mb-6 leading-relaxed">
+              {getText('onboardingMessage')}
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowOnboardingGuide(false);
+                  setCurrentView('questions');
+                }}
+                className="flex-1 bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 font-semibold"
+              >
+                📝 {currentUser?.target_language === 'zh' ? '去生成问题' : '質問を生成する'}
+              </button>
+              <button
+                onClick={() => setShowOnboardingGuide(false)}
+                className="px-6 bg-gray-200 py-3 rounded-lg hover:bg-gray-300 font-semibold"
+              >
+                {getText('gotIt')}
+              </button>
             </div>
           </div>
         </div>

@@ -54,7 +54,7 @@ export async function initDatabase() {
         password_hash VARCHAR(255) NOT NULL,
         username VARCHAR(100),
         avatar_url VARCHAR(500),
-        target_language VARCHAR(10) DEFAULT 'ja',
+        target_language VARCHAR(10) DEFAULT 'zh',
         ai_credits INT DEFAULT 100,
         notion_api_key VARCHAR(500),
         notion_database_id VARCHAR(100),

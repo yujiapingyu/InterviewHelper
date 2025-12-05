@@ -692,8 +692,9 @@ app.get('/api/questions', authenticate, async (req, res) => {
   const offset = (parseInt(page) - 1) * parseInt(limit);
   
   try {
-    let query = 'SELECT * FROM questions WHERE user_id IS NULL OR user_id = ?';
-    let countQuery = 'SELECT COUNT(*) as total FROM questions WHERE user_id IS NULL OR user_id = ?';
+    // Only show user's own questions (not default questions with user_id IS NULL)
+    let query = 'SELECT * FROM questions WHERE user_id = ?';
+    let countQuery = 'SELECT COUNT(*) as total FROM questions WHERE user_id = ?';
     const params = [req.userId];
     const countParams = [req.userId];
     
@@ -739,7 +740,8 @@ app.get('/api/questions/random', authenticate, async (req, res) => {
   const { category } = req.query;
   
   try {
-    let query = 'SELECT * FROM questions WHERE (user_id IS NULL OR user_id = ?)';
+    // Only get user's own questions (not default questions with user_id IS NULL)
+    let query = 'SELECT * FROM questions WHERE user_id = ?';
     const params = [req.userId];
     
     if (category && category !== 'all') {
@@ -872,6 +874,20 @@ app.post('/api/questions/generate', authenticate, requireCredits('GENERATE_QUEST
   const { category = 'HR', count = 3, resumeInfo = null } = req.body;
   
   try {
+    // Check if user has uploaded a resume
+    const [resumes] = await pool.query(
+      'SELECT id FROM resume_info WHERE user_id = ? LIMIT 1',
+      [req.userId]
+    );
+    
+    if (resumes.length === 0) {
+      return res.status(400).json({ 
+        error: 'Resume required',
+        message: '質問を生成する前に履歴書をアップロードしてください。',
+        message_zh: '请先上传简历再生成问题。'
+      });
+    }
+    
     // Get existing summaries to avoid duplicates
     const [existingQuestions] = await pool.query(
       'SELECT summary FROM questions WHERE user_id = ? AND summary IS NOT NULL',
