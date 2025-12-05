@@ -20,7 +20,7 @@ export const AI_COST_DESCRIPTIONS = {
   FOLLOW_UP_QUESTION: '生成追问',
   FOLLOW_UP_EVALUATION: '评估追问答案',
   ANALYZE_VOCABULARY: '分析单词',
-  ANALYZE_WORD: '生成专业词汇',
+  ANALYZE_WORD: '简历导入时生成专业词汇',
   IMPORT_DOCUMENT: '导入文档',
   ANALYZE_QUESTION: '解析问题',
   PARSE_RESUME: '解析履历书',

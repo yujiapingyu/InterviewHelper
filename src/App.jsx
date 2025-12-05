@@ -3633,6 +3633,7 @@ function App() {
                             {cost.operation === 'FOLLOW_UP_QUESTION' && '深掘り追問を生成'}
                             {cost.operation === 'FOLLOW_UP_EVALUATION' && '追問の回答を評価'}
                             {cost.operation === 'ANALYZE_VOCABULARY' && '単語の翻訳・解説・例文を生成'}
+                            {cost.operation === 'ANALYZE_WORD' && '専門用語を生成'}
                             {cost.operation === 'IMPORT_DOCUMENT' && '文書から面接問題を抽出'}
                             {cost.operation === 'ANALYZE_QUESTION' && '標準答案・技巧・摘要を生成'}
                             {cost.operation === 'PARSE_RESUME' && '履歴書から情報を抽出'}
