@@ -142,6 +142,9 @@ function App() {
   const [favoritesPage, setFavoritesPage] = useState(1);
   const [vocabularyPage, setVocabularyPage] = useState(1);
   const [questionsTotal, setQuestionsTotal] = useState(0);
+  const [allQuestionsTotal, setAllQuestionsTotal] = useState(0);
+  const [hrQuestionsTotal, setHrQuestionsTotal] = useState(0);
+  const [techQuestionsTotal, setTechQuestionsTotal] = useState(0);
   const [favoritesTotal, setFavoritesTotal] = useState(0);
   const [vocabularyTotal, setVocabularyTotal] = useState(0);
   const [questionsPerPage, setQuestionsPerPage] = useState(10);
@@ -494,8 +497,10 @@ function App() {
 
   const loadUserData = async () => {
     try {
-      const [questionsData, favoritesData, resumesData, vocabularyData, notionStatus, costsData] = await Promise.all([
+      const [questionsData, hrData, techData, favoritesData, resumesData, vocabularyData, notionStatus, costsData] = await Promise.all([
         questionsAPI.getAll(null, currentPage, questionsPerPage, searchKeyword),
+        questionsAPI.getAll('HR', 1, 1, ''),
+        questionsAPI.getAll('Tech', 1, 1, ''),
         favoritesAPI.getAll(favoritesPage, favoritesPerPage),
         resumeAPI.getAll(),
         vocabularyAPI.getAll(vocabularyPage, vocabularyPerPage),
@@ -505,6 +510,9 @@ function App() {
       
       setQuestions(questionsData.questions || questionsData);
       setQuestionsTotal(questionsData.total || (questionsData.questions || questionsData).length);
+      setAllQuestionsTotal(questionsData.total || (questionsData.questions || questionsData).length);
+      setHrQuestionsTotal(hrData.total || 0);
+      setTechQuestionsTotal(techData.total || 0);
       setFavorites(favoritesData.favorites || favoritesData);
       setFavoritesTotal(favoritesData.total || (favoritesData.favorites || favoritesData).length);
       setResumes(resumesData);
@@ -2258,7 +2266,7 @@ function App() {
                   }}
                   className={`px-4 py-2 rounded-lg ${categoryFilter === 'all' ? 'bg-gray-800 text-white' : 'bg-gray-100'}`}
                 >
-                  {getText('allQuestions')} ({questionsTotal})
+                  {getText('allQuestions')} ({allQuestionsTotal})
                 </button>
                 <button
                   onClick={async () => {
@@ -2270,7 +2278,7 @@ function App() {
                   }}
                   className={`px-4 py-2 rounded-lg ${categoryFilter === 'HR' ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}
                 >
-                  HR
+                  HR ({hrQuestionsTotal})
                 </button>
                 <button
                   onClick={async () => {
@@ -2282,7 +2290,7 @@ function App() {
                   }}
                   className={`px-4 py-2 rounded-lg ${categoryFilter === 'Tech' ? 'bg-green-600 text-white' : 'bg-gray-100'}`}
                 >
-                  Tech
+                  Tech ({techQuestionsTotal})
                 </button>
               </div>
 
