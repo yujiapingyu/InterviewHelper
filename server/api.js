@@ -1804,6 +1804,127 @@ app.delete('/api/vocabulary/:id', authenticate, async (req, res) => {
   }
 });
 
+// Update vocabulary note
+app.put('/api/vocabulary/:id', authenticate, async (req, res) => {
+  const { word, translation, explanation, example_sentences, tags } = req.body;
+  
+  try {
+    await pool.query(
+      `UPDATE vocabulary_notes 
+       SET word = ?, translation = ?, explanation = ?, example_sentences = ?, tags = ?, updated_at = NOW()
+       WHERE id = ? AND user_id = ?`,
+      [
+        word,
+        translation || null,
+        explanation || null,
+        example_sentences ? JSON.stringify(example_sentences) : null,
+        tags ? JSON.stringify(tags) : null,
+        req.params.id,
+        req.userId
+      ]
+    );
+    
+    const [noteRows] = await pool.query('SELECT * FROM vocabulary_notes WHERE id = ?', [req.params.id]);
+    const note = noteRows[0];
+    if (note.example_sentences) note.example_sentences = JSON.parse(note.example_sentences);
+    if (note.tags) note.tags = JSON.parse(note.tags);
+    
+    res.json(note);
+  } catch (error) {
+    console.error('Update vocabulary error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Check if user has taken vocab test before
+app.get('/api/vocabulary/check-test-status', authenticate, async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      'SELECT COUNT(*) as count FROM vocabulary_notes WHERE user_id = ?',
+      [req.userId]
+    );
+    
+    // If user has any vocabulary notes, consider test as taken
+    const hasTakenTest = rows[0].count > 0;
+    res.json({ hasTakenTest });
+  } catch (error) {
+    console.error('Check vocab test status error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Generate professional vocabulary test based on resume
+app.post('/api/vocabulary/generate-test', authenticate, async (req, res) => {
+  const { skills, experience } = req.body;
+  
+  try {
+    console.log('🎯 Generating vocab test for skills:', skills);
+    
+    const prompt = `あなたは日本語教育の専門家です。以下のスキルと経験に基づいて、面接で使われる可能性の高い専門用語を3-5個生成してください。
+
+スキル: ${skills.join(', ')}
+経験: ${experience || '未記入'}
+
+各用語について以下の形式でJSON配列を返してください：
+[
+  {
+    "word": "日本語の専門用語",
+    "translation": "中国語訳",
+    "explanation": "簡潔な解説（Markdown形式可）"
+  }
+]
+
+注意事項：
+- 実務でよく使われる専門用語を選ぶ
+- 難易度は中級～上級レベル
+- 説明は30文字以内で簡潔に`;
+
+    console.log('📡 Calling Gemini API...');
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${process.env.VITE_GEMINI_API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.7,
+            maxOutputTokens: 1024,
+          }
+        })
+      }
+    );
+    
+    console.log('📊 Gemini response status:', response.status);
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('❌ Gemini API error:', errorText);
+      throw new Error('Gemini API request failed: ' + errorText);
+    }
+    
+    const data = await response.json();
+    console.log('✅ Gemini response received');
+    const text = data.candidates[0].content.parts[0].text;
+    
+    // Extract JSON from response
+    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) {
+      throw new Error('Failed to parse vocabulary data');
+    }
+    
+    const words = JSON.parse(jsonMatch[0]);
+    
+    // Charge credits for vocabulary generation
+    await chargeCredits(req.userId, 'ANALYZE_WORD', `Generated ${words.length} professional vocabulary words`);
+    
+    res.json({ words });
+  } catch (error) {
+    console.error('Generate vocabulary test error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Check Notion integration status
 app.get('/api/notion/status', authenticate, (req, res) => {
   const enabled = isNotionEnabled(req.userNotionConfig);

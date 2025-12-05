@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { marked } from 'marked';
 import { 
   User, LogIn, LogOut, BookOpen, Mic, FileText, Star, 
   PlusCircle, Edit, Trash2, Play, ChevronRight, Home,
@@ -54,6 +55,22 @@ function App() {
   const [reviewMode, setReviewMode] = useState(false);
   const [currentReviewIndex, setCurrentReviewIndex] = useState(0);
   const [showAnswer, setShowAnswer] = useState(false);
+  
+  // Vocabulary editing
+  const [editingVocabulary, setEditingVocabulary] = useState(null);
+  const [showVocabEditModal, setShowVocabEditModal] = useState(false);
+  const [vocabularyForm, setVocabularyForm] = useState({
+    word: '',
+    translation: '',
+    explanation: '',
+    example_sentences: []
+  });
+  
+  // Professional vocabulary test for new users
+  const [showVocabTest, setShowVocabTest] = useState(false);
+  const [vocabTestWords, setVocabTestWords] = useState([]);
+  const [vocabTestResults, setVocabTestResults] = useState({});
+  const [isProcessingVocabTest, setIsProcessingVocabTest] = useState(false);
 
   // Question management
   const [editingQuestion, setEditingQuestion] = useState(null);
@@ -1019,14 +1036,127 @@ function App() {
 
     try {
       // Upload file directly to server for parsing
+      setError('📝 履歴書を解析中...');
       await resumeAPI.uploadFile(file);
+      
+      setError('✅ 解析完了、データを更新中...');
       const updatedResumes = await resumeAPI.getAll();
       setResumes(updatedResumes);
+      
+      setError('');
       alert('履歴書を正常にアップロードしました！');
+      
+      // Check if user has taken vocab test before
+      console.log('🔍 Checking vocab test status...');
+      const testStatusResponse = await fetch(`${import.meta.env.VITE_API_BASE_URL}/vocabulary/check-test-status`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+        }
+      });
+      const { hasTakenTest } = await testStatusResponse.json();
+      console.log('📊 Has taken test:', hasTakenTest);
+      
+      // If user hasn't taken test and resume has skills, generate professional vocabulary test
+      if (!hasTakenTest && updatedResumes.length > 0) {
+        const resume = updatedResumes[0];
+        console.log('📄 Resume data:', {
+          hasSkills: !!resume.skills,
+          skillsLength: resume.skills?.length,
+          skills: resume.skills
+        });
+        
+        if (resume.skills && resume.skills.length > 0) {
+          console.log('✅ Triggering vocabulary test...');
+          await generateVocabularyTest(resume);
+        } else {
+          console.log('❌ No skills found, skipping vocab test');
+        }
+      } else {
+        console.log('❌ Skipping vocab test:', { hasTakenTest, hasResumes: updatedResumes.length > 0 });
+      }
     } catch (err) {
+      console.error('Upload error:', err);
       setError('ファイルの処理に失敗しました: ' + err.message);
     } finally {
       setLoading(false);
+    }
+  };
+  
+  // Generate vocabulary test based on resume skills
+  const generateVocabularyTest = async (resume) => {
+    try {
+      setIsProcessingVocabTest(true);
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/vocabulary/generate-test`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+        },
+        body: JSON.stringify({
+          skills: resume.skills,
+          experience: resume.experience
+        })
+      });
+      
+      if (!response.ok) throw new Error('Failed to generate vocabulary test');
+      
+      const data = await response.json();
+      setVocabTestWords(data.words || []);
+      setShowVocabTest(true);
+    } catch (err) {
+      console.error('Vocabulary test generation failed:', err);
+    } finally {
+      setIsProcessingVocabTest(false);
+    }
+  };
+  
+  // Handle vocabulary test completion
+  const handleVocabTestComplete = async () => {
+    const unknownWords = Object.entries(vocabTestResults)
+      .filter(([_, known]) => !known)
+      .map(([word, _]) => vocabTestWords.find(w => w.word === word));
+    
+    if (unknownWords.length > 0) {
+      try {
+        for (const wordData of unknownWords) {
+          await vocabularyAPI.save(wordData);
+        }
+        const updatedVocab = await vocabularyAPI.getAll(vocabularyPage, vocabularyPerPage);
+        setVocabularyNotes(updatedVocab.notes || updatedVocab);
+        setVocabularyTotal(updatedVocab.total || (updatedVocab.notes || updatedVocab).length);
+        alert(`${unknownWords.length}個の専門用語を単語帳に追加しました！`);
+      } catch (err) {
+        console.error('Failed to save vocabulary:', err);
+      }
+    }
+    
+    setShowVocabTest(false);
+    setVocabTestWords([]);
+    setVocabTestResults({});
+  };
+  
+  // Edit vocabulary
+  const handleEditVocabulary = (note) => {
+    setEditingVocabulary(note);
+    setVocabularyForm({
+      word: note.word,
+      translation: note.translation,
+      explanation: note.explanation || '',
+      example_sentences: note.example_sentences || []
+    });
+    setShowVocabEditModal(true);
+  };
+  
+  // Update edited vocabulary
+  const handleUpdateVocabulary = async () => {
+    try {
+      await vocabularyAPI.update(editingVocabulary.id, vocabularyForm);
+      const updatedVocab = await vocabularyAPI.getAll(vocabularyPage, vocabularyPerPage);
+      setVocabularyNotes(updatedVocab.notes || updatedVocab);
+      setShowVocabEditModal(false);
+      setEditingVocabulary(null);
+    } catch (err) {
+      setError('単語の更新に失敗しました: ' + err.message);
     }
   };
 
@@ -1527,6 +1657,41 @@ function App() {
         {/* Home View */}
         {currentView === 'home' && (
           <div className="space-y-6">
+            {/* New User Onboarding - Encourage Resume Upload */}
+            {resumes.length === 0 && (
+              <div className="bg-gradient-to-r from-blue-50 to-purple-50 border-2 border-blue-200 rounded-lg p-6">
+                <div className="flex items-start gap-4">
+                  <div className="flex-shrink-0">
+                    <div className="w-12 h-12 bg-blue-600 rounded-full flex items-center justify-center">
+                      <FileText className="w-6 h-6 text-white" />
+                    </div>
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-xl font-bold mb-2">🎯 履歴書をアップロードして、パーソナライズされた面接練習を始めましょう！</h3>
+                    <p className="text-gray-700 mb-4">
+                      履歴書をアップロードすると、あなたの経験やスキルに基づいた面接質問が自動生成されます。
+                      さらに、専門用語チェックで単語帳を充実させることができます。
+                    </p>
+                    <div className="flex flex-wrap gap-3">
+                      <button
+                        onClick={() => setCurrentView('resumes')}
+                        className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 font-semibold"
+                      >
+                        <Upload className="w-5 h-5" />
+                        今すぐアップロード
+                      </button>
+                      <button
+                        onClick={() => setCurrentView('questions')}
+                        className="px-6 py-3 bg-white border-2 border-blue-600 text-blue-600 rounded-lg hover:bg-blue-50 font-semibold"
+                      >
+                        後で、質問から始める
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            
             <div className="bg-white rounded-lg shadow-sm p-6" onMouseUp={handleTextSelection}>
               <h2 className="text-2xl font-bold mb-4">面接練習を始めましょう</h2>
               <p className="text-gray-600 mb-6">
@@ -2701,18 +2866,30 @@ function App() {
                         <h3 className="text-lg md:text-xl font-bold text-blue-700 mb-1 break-words">{note.word}</h3>
                         <p className="text-sm md:text-base text-gray-600 break-words">{note.translation}</p>
                       </div>
-                      <button
-                        onClick={() => handleDeleteVocabulary(note.id)}
-                        className="p-1.5 md:p-2 text-red-600 hover:bg-red-50 rounded-lg flex-shrink-0"
-                      >
-                        <Trash2 className="w-4 h-4 md:w-5 md:h-5" />
-                      </button>
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => handleEditVocabulary(note)}
+                          className="p-1.5 md:p-2 text-blue-600 hover:bg-blue-50 rounded-lg flex-shrink-0"
+                          title="編集"
+                        >
+                          <Edit className="w-4 h-4 md:w-5 md:h-5" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteVocabulary(note.id)}
+                          className="p-1.5 md:p-2 text-red-600 hover:bg-red-50 rounded-lg flex-shrink-0"
+                        >
+                          <Trash2 className="w-4 h-4 md:w-5 md:h-5" />
+                        </button>
+                      </div>
                     </div>
 
                     {note.explanation && (
                       <div className="mb-3">
                         <h4 className="font-semibold text-xs md:text-sm mb-1">解説:</h4>
-                        <p className="text-xs md:text-sm text-gray-700 break-words">{note.explanation}</p>
+                        <div 
+                          className="text-xs md:text-sm text-gray-700 break-words prose prose-sm max-w-none"
+                          dangerouslySetInnerHTML={{ __html: marked.parse(note.explanation) }}
+                        />
                       </div>
                     )}
 
@@ -3656,6 +3833,152 @@ function App() {
               >
                 キャンセル
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Vocabulary Edit Modal */}
+      {showVocabEditModal && editingVocabulary && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <h2 className="text-2xl font-bold mb-4">単語を編集</h2>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block font-medium mb-2">単語</label>
+                  <input
+                    type="text"
+                    value={vocabularyForm.word}
+                    onChange={(e) => setVocabularyForm({ ...vocabularyForm, word: e.target.value })}
+                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block font-medium mb-2">翻訳</label>
+                  <input
+                    type="text"
+                    value={vocabularyForm.translation}
+                    onChange={(e) => setVocabularyForm({ ...vocabularyForm, translation: e.target.value })}
+                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block font-medium mb-2">解説 (Markdown対応)</label>
+                  <textarea
+                    value={vocabularyForm.explanation}
+                    onChange={(e) => setVocabularyForm({ ...vocabularyForm, explanation: e.target.value })}
+                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 h-32"
+                    placeholder="**太字** *斜体* `コード` など"
+                  />
+                  {vocabularyForm.explanation && (
+                    <div className="mt-2 p-3 bg-gray-50 rounded-lg">
+                      <p className="text-sm text-gray-600 mb-1">プレビュー:</p>
+                      <div 
+                        className="prose prose-sm max-w-none"
+                        dangerouslySetInnerHTML={{ __html: marked.parse(vocabularyForm.explanation) }}
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+              
+              <div className="flex gap-3 mt-6">
+                <button
+                  onClick={handleUpdateVocabulary}
+                  className="flex-1 bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700"
+                >
+                  保存
+                </button>
+                <button
+                  onClick={() => {
+                    setShowVocabEditModal(false);
+                    setEditingVocabulary(null);
+                  }}
+                  className="flex-1 bg-gray-200 py-3 rounded-lg hover:bg-gray-300"
+                >
+                  キャンセル
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Professional Vocabulary Test Modal */}
+      {showVocabTest && vocabTestWords.length > 0 && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <h2 className="text-2xl font-bold mb-2">🎯 専門用語チェック</h2>
+              <p className="text-gray-600 mb-6">
+                履歴書に基づいて、{vocabTestWords.length}個の専門用語を選びました。知っている単語をチェックしてください。
+                知らない単語は自動的に単語帳に追加されます。
+              </p>
+              
+              <div className="space-y-3 mb-6">
+                {vocabTestWords.map((word, index) => (
+                  <div 
+                    key={index}
+                    className="border rounded-lg p-4 hover:border-blue-300 transition"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3 mb-2">
+                          <h3 className="text-lg font-bold text-blue-700">{word.word}</h3>
+                          <span className="text-sm text-gray-600">{word.translation}</span>
+                        </div>
+                        <p className="text-sm text-gray-700">{word.explanation}</p>
+                      </div>
+                      <div className="flex gap-2 ml-4">
+                        <button
+                          onClick={() => setVocabTestResults({ ...vocabTestResults, [word.word]: true })}
+                          className={`px-4 py-2 rounded-lg border-2 transition ${
+                            vocabTestResults[word.word] === true
+                              ? 'border-green-500 bg-green-50 text-green-700'
+                              : 'border-gray-300 hover:border-green-500'
+                          }`}
+                        >
+                          知っている
+                        </button>
+                        <button
+                          onClick={() => setVocabTestResults({ ...vocabTestResults, [word.word]: false })}
+                          className={`px-4 py-2 rounded-lg border-2 transition ${
+                            vocabTestResults[word.word] === false
+                              ? 'border-blue-500 bg-blue-50 text-blue-700'
+                              : 'border-gray-300 hover:border-blue-500'
+                          }`}
+                        >
+                          知らない
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              
+              <div className="flex gap-3">
+                <button
+                  onClick={handleVocabTestComplete}
+                  disabled={Object.keys(vocabTestResults).length !== vocabTestWords.length}
+                  className="flex-1 bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  完了
+                </button>
+                <button
+                  onClick={() => {
+                    setShowVocabTest(false);
+                    setVocabTestWords([]);
+                    setVocabTestResults({});
+                  }}
+                  className="px-6 bg-gray-200 py-3 rounded-lg hover:bg-gray-300"
+                >
+                  スキップ
+                </button>
+              </div>
             </div>
           </div>
         </div>

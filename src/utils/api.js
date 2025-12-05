@@ -416,6 +416,13 @@ export const vocabularyAPI = {
       body: JSON.stringify(vocabularyData),
     });
   },
+  
+  async update(id, vocabularyData) {
+    return fetchWithAuth(`/vocabulary/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(vocabularyData),
+    });
+  },
 
   async delete(id) {
     return fetchWithAuth(`/vocabulary/${id}`, {

@@ -7,6 +7,7 @@ export const AI_COSTS = {
   FOLLOW_UP_QUESTION: 3,      // 生成追问
   FOLLOW_UP_EVALUATION: 3,    // 评估追问答案
   ANALYZE_VOCABULARY: 2,      // 分析单词
+  ANALYZE_WORD: 0,            // 分析单词（别名）
   IMPORT_DOCUMENT: 8,         // 导入文档（提取问题）
   ANALYZE_QUESTION: 5,        // 解析问题（生成完整数据）
   PARSE_RESUME: 10,           // 解析履历书
@@ -19,6 +20,7 @@ export const AI_COST_DESCRIPTIONS = {
   FOLLOW_UP_QUESTION: '生成追问',
   FOLLOW_UP_EVALUATION: '评估追问答案',
   ANALYZE_VOCABULARY: '分析单词',
+  ANALYZE_WORD: '生成专业词汇',
   IMPORT_DOCUMENT: '导入文档',
   ANALYZE_QUESTION: '解析问题',
   PARSE_RESUME: '解析履历书',
