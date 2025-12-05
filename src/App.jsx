@@ -270,6 +270,7 @@ function App() {
       prepAnalyzing: { ja: 'AI分析中...', zh: 'AI分析中...' },
       availableQuestions: { ja: '利用可能な質問', zh: '可用问题数' },
       favoritesCount: { ja: 'お気に入り', zh: '收藏数' },
+      aiCreditsManagement: { ja: 'AIポイント管理', zh: 'AI积分管理' },
       uploadedResumes: { ja: 'アップロード済み履歴書', zh: '已上传简历' },
       questionCount: { ja: '問', zh: '个问题' },
       
@@ -4170,7 +4171,7 @@ function App() {
             <div className="p-6 border-b flex items-center justify-between sticky top-0 bg-white">
               <h2 className="text-2xl font-bold flex items-center gap-2">
                 <Coins className="w-6 h-6 text-yellow-500" />
-                AIポイント管理
+                {getText('aiCreditsManagement')}
               </h2>
               <button
                 onClick={() => setShowCreditsModal(false)}
