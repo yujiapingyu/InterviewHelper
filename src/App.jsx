@@ -1140,9 +1140,16 @@ function App() {
     setLoading(true);
     setError('');
     
+    // Save the word before analysis
+    const wordToAnalyze = selectedText.trim();
+    
     try {
-      const analysis = await vocabularyAPI.analyze(selectedText);
-      setVocabularyAnalysis(analysis);
+      const analysis = await vocabularyAPI.analyze(wordToAnalyze);
+      // Add the word to the analysis object
+      setVocabularyAnalysis({
+        ...analysis,
+        word: wordToAnalyze
+      });
       setShowVocabularyPopup(true);
       
       // Hide the floating search button after analysis
@@ -1158,15 +1165,14 @@ function App() {
   };
 
   const handleSaveVocabulary = async () => {
-    if (!vocabularyAnalysis || !selectedText) {
+    if (!vocabularyAnalysis || !vocabularyAnalysis.word) {
       showToast('⚠️ 保存失败：没有选择单词', 'warning');
       return;
     }
     
     // Save the data before clearing state
-    const wordToSave = selectedText.trim();
     const dataToSave = {
-      word: wordToSave,
+      word: vocabularyAnalysis.word,
       translation: vocabularyAnalysis.translation,
       explanation: vocabularyAnalysis.explanation,
       example_sentences: vocabularyAnalysis.exampleSentences,
@@ -1181,7 +1187,7 @@ function App() {
     
     setLoading(true);
     try {
-      console.log('📤 Saving vocabulary:', wordToSave);
+      console.log('📤 Saving vocabulary:', dataToSave.word);
       const savedNote = await vocabularyAPI.save(dataToSave);
       
       console.log('✅ Vocabulary saved:', savedNote);
@@ -3669,7 +3675,7 @@ function App() {
 
               <div className="space-y-4">
                 <div>
-                  <h4 className="text-xl font-bold text-blue-700 mb-2">{selectedText}</h4>
+                  <h4 className="text-xl font-bold text-blue-700 mb-2">{vocabularyAnalysis.word}</h4>
                   <p className="text-lg text-gray-700">{vocabularyAnalysis.translation}</p>
                 </div>
 
