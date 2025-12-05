@@ -1905,7 +1905,14 @@ function App() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 md:gap-4 flex-1 min-w-0">
               <h1 className="text-base md:text-2xl font-bold text-gray-800 truncate">{getText('appTitle')}</h1>
-              <span className="text-xs md:text-sm text-gray-500 hidden sm:inline">ようこそ、{currentUser.username}さん</span>
+              <div className="flex items-center gap-1.5 md:gap-2 hidden sm:flex">
+                <img 
+                  src="/logo.jpg" 
+                  alt="Logo" 
+                  className="w-6 h-6 md:w-7 md:h-7 rounded-full object-cover shadow-sm"
+                />
+                <span className="text-xs md:text-sm text-gray-500">ようこそ、{currentUser.username}さん</span>
+              </div>
             </div>
             <div className="flex items-center gap-1 md:gap-3">
               {/* AI Credits Display */}
@@ -2116,21 +2123,41 @@ function App() {
               </p>
 
               <div className="grid md:grid-cols-2 gap-4 mb-6">
-                <div className="border-2 border-blue-200 rounded-lg p-6 hover:border-blue-400 transition cursor-pointer"
+                <div className="border-2 border-blue-200 rounded-lg p-6 hover:border-blue-400 transition cursor-pointer flex items-stretch gap-4"
                      onClick={() => { setCategoryFilter('HR'); setCurrentView('questions'); }}>
-                  <h3 className="text-xl font-semibold mb-2">{getText('hrCategory')}</h3>
-                  <p className="text-gray-600 mb-4">{getText('hrDesc')}</p>
-                  <div className="text-blue-600 font-medium">
-                    {questions.filter(q => q.category === 'HR').length} {getText('questionCount')}
+                  <div className="flex-1">
+                    <h3 className="text-xl font-semibold mb-2">{getText('hrCategory')}</h3>
+                    <p className="text-gray-600 mb-4">{getText('hrDesc')}</p>
+                    <div className="text-blue-600 font-medium">
+                      {questions.filter(q => q.category === 'HR').length} {getText('questionCount')}
+                    </div>
+                  </div>
+                  <div className="flex items-center">
+                    <img 
+                      src="/resources/HR.png" 
+                      alt="HR" 
+                      className="h-full w-auto object-contain"
+                      style={{ maxWidth: '80px' }}
+                    />
                   </div>
                 </div>
 
-                <div className="border-2 border-green-200 rounded-lg p-6 hover:border-green-400 transition cursor-pointer"
+                <div className="border-2 border-green-200 rounded-lg p-6 hover:border-green-400 transition cursor-pointer flex items-stretch gap-4"
                      onClick={() => { setCategoryFilter('Tech'); setCurrentView('questions'); }}>
-                  <h3 className="text-xl font-semibold mb-2">{getText('techCategory')}</h3>
-                  <p className="text-gray-600 mb-4">{getText('techDesc')}</p>
-                  <div className="text-green-600 font-medium">
-                    {questions.filter(q => q.category === 'Tech').length} {getText('questionCount')}
+                  <div className="flex-1">
+                    <h3 className="text-xl font-semibold mb-2">{getText('techCategory')}</h3>
+                    <p className="text-gray-600 mb-4">{getText('techDesc')}</p>
+                    <div className="text-green-600 font-medium">
+                      {questions.filter(q => q.category === 'Tech').length} {getText('questionCount')}
+                    </div>
+                  </div>
+                  <div className="flex items-center">
+                    <img 
+                      src="/resources/専門.png" 
+                      alt="Tech" 
+                      className="h-full w-auto object-contain"
+                      style={{ maxWidth: '80px' }}
+                    />
                   </div>
                 </div>
               </div>
