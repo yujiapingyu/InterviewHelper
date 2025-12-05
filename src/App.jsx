@@ -164,6 +164,38 @@ function App() {
     loadCurrentUser();
   }, []);
 
+  // Handle clicks/touches outside to clear text selection
+  useEffect(() => {
+    const handleClearSelection = (e) => {
+      // Don't clear if clicking on the floating search button or if analysis is loading
+      if (loading) return;
+      
+      // Check if clicked element is the search button or its children
+      const isSearchButton = e.target.closest('button[title*="AI分析"]') || 
+                            e.target.closest('button[title*="analyzeWord"]');
+      if (isSearchButton) return;
+      
+      // If there's a selection, check if user is still selecting text
+      const selection = window.getSelection();
+      const hasSelection = selection && selection.toString().trim().length > 0;
+      
+      // Only clear if no current selection
+      if (!hasSelection && (selectedText || floatingSearchPos)) {
+        setSelectedText('');
+        setFloatingSearchPos(null);
+      }
+    };
+
+    // Listen for both mouse and touch events
+    document.addEventListener('mousedown', handleClearSelection);
+    document.addEventListener('touchstart', handleClearSelection);
+    
+    return () => {
+      document.removeEventListener('mousedown', handleClearSelection);
+      document.removeEventListener('touchstart', handleClearSelection);
+    };
+  }, [selectedText, floatingSearchPos, loading]);
+
   useEffect(() => {
     if (countdown > 0) {
       const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
