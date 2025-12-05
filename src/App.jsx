@@ -336,6 +336,12 @@ function App() {
       
       // Favorites
       favoriteQuestions: { ja: 'お気に入りの質問', zh: '收藏的问题' },
+      viewModelAnswer: { ja: '模範回答を見る', zh: '查看标准答案' },
+      backToQuestionList: { ja: '質問一覧に戻る', zh: '返回问题列表' },
+      improvedAnswer: { ja: '改善された回答', zh: '改进后的答案' },
+      evaluation: { ja: '評価', zh: '评价' },
+      advice: { ja: 'アドバイス', zh: '建议' },
+      aiEvaluation: { ja: 'AI評価', zh: 'AI评价' },
       
       // Resume upload
       resumeManagement: { ja: '履歴書管理', zh: '简历管理' },
@@ -2578,7 +2584,7 @@ function App() {
                               {turn.aiFeedback && (
                                 <div className="bg-white p-3 rounded">
                                   <div className="flex items-center gap-2 mb-2">
-                                    <span className="font-semibold text-sm">スコア:</span>
+                                    <span className="font-semibold text-sm">{getText('score')}:</span>
                                     <span className="text-lg font-bold text-purple-600">{turn.aiFeedback.score}/100</span>
                                   </div>
                                   <p className="text-sm text-gray-700">{turn.aiFeedback.feedback}</p>
@@ -2594,7 +2600,7 @@ function App() {
                                   )}
                                   {turn.aiFeedback.correctedVersion && (
                                     <div className="mt-3 pt-3 border-t border-gray-200">
-                                      <p className="text-xs font-semibold text-green-600 mb-1">✨ 改善された回答:</p>
+                                      <p className="text-xs font-semibold text-green-600 mb-1">✨ {getText('improvedAnswer')}:</p>
                                       <p className="text-sm text-gray-700 bg-green-50 p-2 rounded">{turn.aiFeedback.correctedVersion}</p>
                                     </div>
                                   )}
@@ -2615,7 +2621,7 @@ function App() {
                     <p className="text-gray-800 mb-4">{pendingFollowUp.followUpQuestion}</p>
                     
                     <div className="flex items-center justify-between mb-2">
-                      <label className="font-medium text-sm text-gray-700">あなたの回答</label>
+                      <label className="font-medium text-sm text-gray-700">{getText('yourAnswer')}</label>
                       <div className="flex gap-2">
                         {!isRecording ? (
                           <button
@@ -2696,7 +2702,7 @@ function App() {
                   onClick={() => setShowModelAnswer(!showModelAnswer)}
                   className="flex items-center justify-between w-full mb-4"
                 >
-                  <h3 className="text-xl font-bold">模範回答を見る</h3>
+                  <h3 className="text-xl font-bold">{getText('viewModelAnswer')}</h3>
                   <ChevronRight className={`w-6 h-6 transition-transform ${showModelAnswer ? 'rotate-90' : ''}`} />
                 </button>
                 
@@ -2712,7 +2718,7 @@ function App() {
               onClick={() => setCurrentView('questions')}
               className="w-full bg-gray-200 py-3 rounded-lg hover:bg-gray-300"
             >
-              質問一覧に戻る
+              {getText('backToQuestionList')}
             </button>
           </div>
         )}
@@ -2790,7 +2796,7 @@ function App() {
                       {/* 保存された用户回答 */}
                       {fav.user_answer && (
                         <div className="mt-4 border-t pt-4">
-                          <h4 className="font-semibold text-sm text-gray-700 mb-2">📝 あなたの回答</h4>
+                          <h4 className="font-semibold text-sm text-gray-700 mb-2">📝 {getText('yourAnswer')}</h4>
                           <div className="bg-white p-3 rounded border text-sm">
                             {fav.user_answer}
                           </div>
@@ -2800,21 +2806,21 @@ function App() {
                       {/* AIフィードバック */}
                       {aiFeedbackData && (
                         <div className="mt-4 border-t pt-4">
-                          <h4 className="font-semibold text-sm text-gray-700 mb-2">🤖 AIフィードバック</h4>
+                          <h4 className="font-semibold text-sm text-gray-700 mb-2">🤖 {getText('aiFeedback')}</h4>
                           <div className="bg-blue-50 p-3 rounded space-y-2">
                             <div className="flex items-center gap-2">
-                              <span className="font-semibold">スコア:</span>
+                              <span className="font-semibold">{getText('score')}:</span>
                               <span className="text-2xl font-bold text-blue-600">{aiFeedbackData.score}/100</span>
                             </div>
                             {aiFeedbackData.feedback && (
                               <div className="text-sm">
-                                <span className="font-semibold">評価:</span>
+                                <span className="font-semibold">{getText('evaluation')}:</span>
                                 <p className="mt-1">{aiFeedbackData.feedback}</p>
                               </div>
                             )}
                             {aiFeedbackData.advice && aiFeedbackData.advice.length > 0 && (
                               <div className="text-sm">
-                                <span className="font-semibold">アドバイス:</span>
+                                <span className="font-semibold">{getText('advice')}:</span>
                                 <ul className="list-disc list-inside mt-1 space-y-1">
                                   {aiFeedbackData.advice.map((tip, idx) => (
                                     <li key={idx}>{tip}</li>
@@ -2829,7 +2835,7 @@ function App() {
                       {/* AI修正版 */}
                       {fav.ai_corrected_version && (
                         <div className="mt-4 border-t pt-4">
-                          <h4 className="font-semibold text-sm text-gray-700 mb-2">✨ 改善された回答</h4>
+                          <h4 className="font-semibold text-sm text-gray-700 mb-2">✨ {getText('improvedAnswer')}</h4>
                           <div className="bg-green-50 p-3 rounded text-sm whitespace-pre-line">
                             {fav.ai_corrected_version}
                           </div>
@@ -2870,7 +2876,7 @@ function App() {
                                       {/* ユーザーの回答 */}
                                       {turn.userAnswer && (
                                         <div className="mb-2">
-                                          <p className="text-xs font-semibold text-gray-600 mb-1">あなたの回答:</p>
+                                          <p className="text-xs font-semibold text-gray-600 mb-1">{getText('yourAnswer')}:</p>
                                           <p className="text-sm text-gray-700 whitespace-pre-line bg-white p-2 rounded">
                                             {turn.userAnswer}
                                           </p>
@@ -2880,11 +2886,11 @@ function App() {
                                       {/* AIフィードバック */}
                                       {turn.aiFeedback && (
                                         <div>
-                                          <p className="text-xs font-semibold text-gray-600 mb-1">AI評価:</p>
+                                          <p className="text-xs font-semibold text-gray-600 mb-1">{getText('aiEvaluation')}:</p>
                                           <div className="bg-white p-2 rounded">
                                             {turn.aiFeedback.score !== undefined && (
                                               <p className="text-sm mb-1">
-                                                <span className="font-semibold">スコア:</span>{' '}
+                                                <span className="font-semibold">{getText('score')}:</span>{' '}
                                                 <span className={`${
                                                   turn.aiFeedback.score >= 80 ? 'text-green-600' :
                                                   turn.aiFeedback.score >= 60 ? 'text-yellow-600' :
@@ -2919,7 +2925,7 @@ function App() {
                                             )}
                                             {turn.aiFeedback.correctedVersion && (
                                               <div className="mt-2 pt-2 border-t border-gray-200">
-                                                <p className="text-xs font-semibold text-green-600 mb-1">✨ 改善された回答:</p>
+                                                <p className="text-xs font-semibold text-green-600 mb-1">✨ {getText('improvedAnswer')}:</p>
                                                 <p className="text-xs text-gray-700 bg-green-50 p-2 rounded whitespace-pre-line">
                                                   {turn.aiFeedback.correctedVersion}
                                                 </p>
