@@ -166,35 +166,48 @@ function App() {
 
   // Handle clicks/touches outside to clear text selection
   useEffect(() => {
-    const handleClearSelection = (e) => {
-      // Don't clear if clicking on the floating search button
-      const isSearchButton = e.target.closest('button[title*="AI分析"]') || 
-                            e.target.closest('button[title*="analyzeWord"]');
-      if (isSearchButton) return;
+    const handleSelectionChange = () => {
+      // Don't update during analysis
+      if (loading) return;
       
-      // Clear the floating button after a small delay
-      // This allows the text selection handlers to run first
+      const selection = window.getSelection();
+      const text = selection ? selection.toString().trim() : '';
+      
+      console.log('📝 Selection changed:', { text, hasState: !!selectedText });
+      
+      // If selection is cleared, clear our state too
+      if (!text && (selectedText || floatingSearchPos)) {
+        console.log('🧹 Clearing selection state');
+        setSelectedText('');
+        setFloatingSearchPos(null);
+      }
+    };
+
+    const handleClick = () => {
+      // Additional check on click/touch to ensure state is synced
       setTimeout(() => {
         const selection = window.getSelection();
-        const currentSelection = selection ? selection.toString().trim() : '';
+        const text = selection ? selection.toString().trim() : '';
         
-        // If there's no current selection, clear our state
-        if (!currentSelection) {
+        if (!text && (selectedText || floatingSearchPos)) {
+          console.log('🧹 Clearing selection state (click)');
           setSelectedText('');
           setFloatingSearchPos(null);
         }
-      }, 50);
+      }, 100);
     };
 
-    // Listen for both mouse and touch events
-    document.addEventListener('click', handleClearSelection);
-    document.addEventListener('touchend', handleClearSelection);
+    // Listen for selection changes and clicks
+    document.addEventListener('selectionchange', handleSelectionChange);
+    document.addEventListener('click', handleClick);
+    document.addEventListener('touchend', handleClick);
     
     return () => {
-      document.removeEventListener('click', handleClearSelection);
-      document.removeEventListener('touchend', handleClearSelection);
+      document.removeEventListener('selectionchange', handleSelectionChange);
+      document.removeEventListener('click', handleClick);
+      document.removeEventListener('touchend', handleClick);
     };
-  }, []);
+  }, [selectedText, floatingSearchPos, loading]);
 
   useEffect(() => {
     if (countdown > 0) {
