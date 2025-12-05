@@ -173,18 +173,39 @@ function App() {
       const selection = window.getSelection();
       const text = selection ? selection.toString().trim() : '';
       
+      console.log('📝 Selection changed:', { text, hasState: !!selectedText });
+      
       // If selection is cleared, clear our state too
       if (!text && (selectedText || floatingSearchPos)) {
+        console.log('🧹 Clearing selection state');
         setSelectedText('');
         setFloatingSearchPos(null);
       }
     };
 
-    // Listen for selection changes
+    const handleClick = () => {
+      // Additional check on click/touch to ensure state is synced
+      setTimeout(() => {
+        const selection = window.getSelection();
+        const text = selection ? selection.toString().trim() : '';
+        
+        if (!text && (selectedText || floatingSearchPos)) {
+          console.log('🧹 Clearing selection state (click)');
+          setSelectedText('');
+          setFloatingSearchPos(null);
+        }
+      }, 100);
+    };
+
+    // Listen for selection changes and clicks
     document.addEventListener('selectionchange', handleSelectionChange);
+    document.addEventListener('click', handleClick);
+    document.addEventListener('touchend', handleClick);
     
     return () => {
       document.removeEventListener('selectionchange', handleSelectionChange);
+      document.removeEventListener('click', handleClick);
+      document.removeEventListener('touchend', handleClick);
     };
   }, [selectedText, floatingSearchPos, loading]);
 
