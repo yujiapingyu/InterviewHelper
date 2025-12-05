@@ -2783,7 +2783,6 @@ function App() {
                           >
                             <Play className="w-4 h-4" />
                             練習
-                            練習
                           </button>
                         </div>
                       </div>
