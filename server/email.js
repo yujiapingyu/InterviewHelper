@@ -1,6 +1,9 @@
 import { Resend } from 'resend';
+import dotenv from 'dotenv';
 
-const resend = new Resend('re_NeheHATx_Mkjr83YdTX4MDKoSKy7mrjMX');
+dotenv.config();
+
+const resend = new Resend(process.env.RESEND_API_KEY || 'your-resend-api-key');
 
 // 生成6位数验证码
 export function generateVerificationCode() {

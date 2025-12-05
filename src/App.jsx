@@ -1395,68 +1395,65 @@ function App() {
       {/* Navigation */}
       <nav className="bg-white border-b shadow-sm sticky top-[57px] md:top-[65px] z-10">
         <div className="max-w-7xl mx-auto px-2 md:px-4 py-2 md:py-3 overflow-x-auto">
-          <div className="flex gap-1 md:gap-2 min-w-max">
+          <div className="flex gap-2 min-w-max">
           <button
             onClick={() => setCurrentView('home')}
-            className={`flex items-center gap-1 md:gap-2 px-2 md:px-4 py-1.5 md:py-2 rounded-lg transition text-sm md:text-base whitespace-nowrap ${
+            className={`flex items-center gap-2 px-3 md:px-4 py-2 rounded-lg transition whitespace-nowrap ${
               currentView === 'home' ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200'
             }`}
           >
-            <Home className="w-4 h-4 md:w-5 md:h-5" />
+            <Home className="w-5 h-5" />
             <span className="hidden sm:inline">ホーム</span>
           </button>
           <button
             onClick={() => setCurrentView('random')}
-            className={`flex items-center gap-1 md:gap-2 px-2 md:px-4 py-1.5 md:py-2 rounded-lg transition text-sm md:text-base whitespace-nowrap ${
+            className={`flex items-center gap-2 px-3 md:px-4 py-2 rounded-lg transition whitespace-nowrap ${
               currentView === 'random' ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200'
             }`}
           >
-            <Shuffle className="w-4 h-4 md:w-5 md:h-5" />
-            <span className="hidden sm:inline">ランダム</span>
+            <Shuffle className="w-5 h-5" />
+            <span className="hidden sm:inline">ランダム練習</span>
             <span className="sm:hidden">練習</span>
           </button>
           <button
             onClick={() => setCurrentView('questions')}
-            className={`flex items-center gap-1 md:gap-2 px-2 md:px-4 py-1.5 md:py-2 rounded-lg transition text-sm md:text-base whitespace-nowrap ${
+            className={`flex items-center gap-2 px-3 md:px-4 py-2 rounded-lg transition whitespace-nowrap ${
               currentView === 'questions' ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200'
             }`}
           >
-            <BookOpen className="w-4 h-4 md:w-5 md:h-5" />
+            <BookOpen className="w-5 h-5" />
             <span className="hidden sm:inline">質問管理</span>
             <span className="sm:hidden">質問</span>
           </button>
           <button
             onClick={() => setCurrentView('favorites')}
-            className={`flex items-center gap-1 md:gap-2 px-2 md:px-4 py-1.5 md:py-2 rounded-lg transition text-sm md:text-base whitespace-nowrap ${
+            className={`flex items-center gap-2 px-3 md:px-4 py-2 rounded-lg transition whitespace-nowrap ${
               currentView === 'favorites' ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200'
             }`}
           >
-            <Star className="w-4 h-4 md:w-5 md:h-5" />
-            <span className="hidden sm:inline">お気に入り</span>
-            <span className="sm:hidden">★</span>
-            <span className="text-xs">({favorites.length})</span>
+            <Star className="w-5 h-5" />
+            <span className="hidden sm:inline">お気に入り ({favorites.length})</span>
+            <span className="sm:hidden">★ {favorites.length}</span>
           </button>
           <button
             onClick={() => setCurrentView('vocabulary')}
-            className={`flex items-center gap-1 md:gap-2 px-2 md:px-4 py-1.5 md:py-2 rounded-lg transition text-sm md:text-base whitespace-nowrap ${
+            className={`flex items-center gap-2 px-3 md:px-4 py-2 rounded-lg transition whitespace-nowrap ${
               currentView === 'vocabulary' ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200'
             }`}
           >
-            <Book className="w-4 h-4 md:w-5 md:h-5" />
-            <span className="hidden sm:inline">単語帳</span>
-            <span className="sm:hidden">単語</span>
-            <span className="text-xs">({vocabularyNotes.length})</span>
+            <Book className="w-5 h-5" />
+            <span className="hidden sm:inline">単語帳 ({vocabularyNotes.length})</span>
+            <span className="sm:hidden">単語 {vocabularyNotes.length}</span>
           </button>
           <button
             onClick={() => setCurrentView('resumes')}
-            className={`flex items-center gap-1 md:gap-2 px-2 md:px-4 py-1.5 md:py-2 rounded-lg transition text-sm md:text-base whitespace-nowrap ${
+            className={`flex items-center gap-2 px-3 md:px-4 py-2 rounded-lg transition whitespace-nowrap ${
               currentView === 'resumes' ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200'
             }`}
           >
-            <FileText className="w-4 h-4 md:w-5 md:h-5" />
-            <span className="hidden sm:inline">履歴書</span>
-            <span className="sm:hidden">CV</span>
-            <span className="text-xs">({resumes.length})</span>
+            <FileText className="w-5 h-5" />
+            <span className="hidden sm:inline">履歴書 ({resumes.length})</span>
+            <span className="sm:hidden">CV {resumes.length}</span>
           </button>
           </div>
         </div>
@@ -1590,9 +1587,9 @@ function App() {
         {currentView === 'questions' && (
           <div className="space-y-6">
             <div className="bg-white rounded-lg shadow-sm p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-2xl font-bold">質問管理</h2>
-                <div className="flex gap-2">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+                <h2 className="text-xl md:text-2xl font-bold">質問管理</h2>
+                <div className="flex gap-2 flex-wrap">
                   <button
                     onClick={() => {
                       setEditingQuestion(null);
@@ -1606,25 +1603,28 @@ function App() {
                       });
                       setCurrentView('editQuestion');
                     }}
-                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                    className="flex items-center gap-2 px-3 md:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm md:text-base whitespace-nowrap"
                   >
-                    <PlusCircle className="w-5 h-5" />
-                    手動追加
+                    <PlusCircle className="w-4 h-4 md:w-5 md:h-5" />
+                    <span className="hidden sm:inline">手動追加</span>
+                    <span className="sm:hidden">追加</span>
                   </button>
                   <button
                     onClick={() => setShowImportModal(true)}
-                    className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+                    className="flex items-center gap-2 px-3 md:px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm md:text-base whitespace-nowrap"
                   >
-                    <FileUp className="w-5 h-5" />
-                    文書導入
+                    <FileUp className="w-4 h-4 md:w-5 md:h-5" />
+                    <span className="hidden sm:inline">文書導入</span>
+                    <span className="sm:hidden">導入</span>
                   </button>
                   <button
                     onClick={openGenerateModal}
                     disabled={loading}
-                    className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+                    className="flex items-center gap-2 px-3 md:px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm md:text-base whitespace-nowrap"
                   >
-                    {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <RefreshCw className="w-5 h-5" />}
-                    AI生成
+                    {loading ? <Loader2 className="w-4 h-4 md:w-5 md:h-5 animate-spin" /> : <RefreshCw className="w-4 h-4 md:w-5 md:h-5" />}
+                    <span className="hidden sm:inline">AI生成</span>
+                    <span className="sm:hidden">AI</span>
                   </button>
                 </div>
               </div>
@@ -2348,9 +2348,9 @@ function App() {
                   };
                   
                   return (
-                    <div key={fav.id} className="border rounded-lg p-4 bg-gray-50" onMouseUp={handleTextSelection}>
-                      <div className="flex items-start justify-between mb-4">
-                        <div className="flex-1">
+                    <div key={fav.id} className="border rounded-lg p-3 md:p-4 bg-gray-50" onMouseUp={handleTextSelection}>
+                      <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3 mb-4">
+                        <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-2 flex-wrap">
                             <span className={`px-2 py-1 text-xs rounded ${
                               fav.category === 'HR' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'
@@ -2361,12 +2361,12 @@ function App() {
                               <span className="px-2 py-1 text-xs rounded bg-purple-100 text-purple-700">AI生成</span>
                             )}
                           </div>
-                          <h3 className="font-semibold text-lg mb-1">{fav.question_ja}</h3>
+                          <h3 className="font-semibold text-base md:text-lg mb-1">{fav.question_ja}</h3>
                           {fav.question_zh && (
                             <p className="text-gray-600 text-sm mb-2">{fav.question_zh}</p>
                           )}
                         </div>
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 flex-shrink-0">
                           <button
                             onClick={() => handleToggleFavorite(fav.question_id)}
                             className="p-2 text-yellow-500 bg-yellow-50 rounded-lg"
@@ -2375,9 +2375,10 @@ function App() {
                           </button>
                           <button
                             onClick={() => startPractice(questionObj)}
-                            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+                            className="px-3 md:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 text-sm md:text-base"
                           >
                             <Play className="w-4 h-4" />
+                            練習
                             練習
                           </button>
                         </div>
