@@ -3676,7 +3676,9 @@ function App() {
                 {vocabularyAnalysis.explanation && (
                   <div>
                     <h4 className="font-semibold mb-1">详细解释:</h4>
-                    <p className="text-gray-700">{vocabularyAnalysis.explanation}</p>
+                    <div className="text-gray-700 markdown-content">
+                      <ReactMarkdown>{vocabularyAnalysis.explanation}</ReactMarkdown>
+                    </div>
                   </div>
                 )}
 
