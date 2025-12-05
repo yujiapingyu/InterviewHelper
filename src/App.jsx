@@ -1111,24 +1111,27 @@ function App() {
   // ===== VOCABULARY FUNCTIONS =====
   
   const handleTextSelection = () => {
-    const selection = window.getSelection();
-    const text = selection.toString().trim();
-    
-    if (text && text.length > 0 && text.length < 100) {
-      setSelectedText(text);
+    // Add a small delay to ensure selection is complete on mobile
+    setTimeout(() => {
+      const selection = window.getSelection();
+      const text = selection.toString().trim();
       
-      // Get selection position for floating icon
-      const range = selection.getRangeAt(0);
-      const rect = range.getBoundingClientRect();
-      
-      setFloatingSearchPos({
-        x: rect.right + 10,
-        y: rect.top - 5
-      });
-    } else {
-      setSelectedText('');
-      setFloatingSearchPos(null);
-    }
+      if (text && text.length > 0 && text.length < 100) {
+        setSelectedText(text);
+        
+        // Get selection position for floating icon
+        const range = selection.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+        
+        setFloatingSearchPos({
+          x: rect.right + 10,
+          y: rect.top - 5
+        });
+      } else {
+        setSelectedText('');
+        setFloatingSearchPos(null);
+      }
+    }, 10);
   };
 
   const handleAnalyzeVocabulary = async () => {
@@ -2099,7 +2102,7 @@ function App() {
         {/* Random Practice View */}
         {currentView === 'random' && (
           <div className="space-y-6">
-            <div className="bg-white rounded-lg shadow-sm p-6" onMouseUp={handleTextSelection}>
+            <div className="bg-white rounded-lg shadow-sm p-6" onMouseUp={handleTextSelection} onTouchEnd={handleTextSelection}>
               <h2 className="text-2xl font-bold mb-4">{getText('randomPractice')}</h2>
               <p className="text-gray-600 mb-6">
                 {getText('randomDesc')}
@@ -2182,7 +2185,7 @@ function App() {
               </div>
             )}
             
-            <div className="bg-white rounded-lg shadow-sm p-6" onMouseUp={handleTextSelection}>
+            <div className="bg-white rounded-lg shadow-sm p-6" onMouseUp={handleTextSelection} onTouchEnd={handleTextSelection}>
               <h2 className="text-2xl font-bold mb-4">{getText('startInterview')}</h2>
               <p className="text-gray-600 mb-6">
                 {getText('homeDesc')}
@@ -2411,7 +2414,7 @@ function App() {
                   const catInfo = categoryInfo[category] || { bg: 'bg-gray-100', text: 'text-gray-700', label: category || '未分類' };
                   
                   return (
-                  <div key={question.id} className="border rounded-lg hover:border-blue-300 transition" onMouseUp={handleTextSelection}>
+                  <div key={question.id} className="border rounded-lg hover:border-blue-300 transition" onMouseUp={handleTextSelection} onTouchEnd={handleTextSelection}>
                     <div className="p-3 md:p-4">
                       <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3 mb-2">
                         <div className="flex-1 cursor-pointer" onClick={() => toggleQuestionExpand(question.id)}>
@@ -2681,18 +2684,18 @@ function App() {
                 </button>
               </div>
 
-              <h2 className="text-2xl font-bold mb-2" onMouseUp={handleTextSelection}>
+              <h2 className="text-2xl font-bold mb-2" onMouseUp={handleTextSelection} onTouchEnd={handleTextSelection}>
                 {selectedQuestion.question_ja}
               </h2>
               {selectedQuestion.question_zh && (
-                <p className="text-gray-600 mb-4" onMouseUp={handleTextSelection}>
+                <p className="text-gray-600 mb-4" onMouseUp={handleTextSelection} onTouchEnd={handleTextSelection}>
                   {selectedQuestion.question_zh}
                 </p>
               )}
 
               {/* Tips */}
               {selectedQuestion.tips_ja && selectedQuestion.tips_ja.length > 0 && (
-                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6" onMouseUp={handleTextSelection}>
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6" onMouseUp={handleTextSelection} onTouchEnd={handleTextSelection}>
                   <h3 className="font-semibold mb-2">{getText('answerTipsTitle')}</h3>
                   <ul className="list-disc list-inside space-y-1 text-sm">
                     {selectedQuestion.tips_ja.map((tip, idx) => (
@@ -2766,7 +2769,7 @@ function App() {
 
             {/* AI Feedback */}
             {aiFeedback && (
-              <div className="bg-white rounded-lg shadow-sm p-6" onMouseUp={handleTextSelection}>
+              <div className="bg-white rounded-lg shadow-sm p-6" onMouseUp={handleTextSelection} onTouchEnd={handleTextSelection}>
                 <h3 className="text-xl font-bold mb-4">{getText('aiFeedback')}</h3>
                 
                 <div className="mb-6">
@@ -2838,7 +2841,7 @@ function App() {
                 {/* Conversation History */}
                 <div className="space-y-4 mb-6">
                   {activeConversation.conversation_turns?.map((turn, idx) => (
-                    <div key={idx} className={`p-4 rounded-lg ${turn.type === 'initial' ? 'bg-blue-50' : 'bg-purple-50'}`} onMouseUp={handleTextSelection}>
+                    <div key={idx} className={`p-4 rounded-lg ${turn.type === 'initial' ? 'bg-blue-50' : 'bg-purple-50'}`} onMouseUp={handleTextSelection} onTouchEnd={handleTextSelection}>
                       {turn.type === 'followup' && (
                         <>
                           <div className="mb-3">
@@ -2889,7 +2892,7 @@ function App() {
 
                 {/* Current Follow-up Question */}
                 {pendingFollowUp && !pendingFollowUp.evaluation && (
-                  <div className="bg-purple-50 border-2 border-purple-300 rounded-lg p-4 mb-4" onMouseUp={handleTextSelection}>
+                  <div className="bg-purple-50 border-2 border-purple-300 rounded-lg p-4 mb-4" onMouseUp={handleTextSelection} onTouchEnd={handleTextSelection}>
                     <h4 className="font-semibold text-purple-700 mb-2">新しい追問:</h4>
                     <p className="text-gray-800 mb-4">{pendingFollowUp.followUpQuestion}</p>
                     
@@ -2980,7 +2983,7 @@ function App() {
                 </button>
                 
                 {showModelAnswer && (
-                  <div className="bg-gray-50 border rounded-lg p-4 whitespace-pre-wrap" onMouseUp={handleTextSelection}>
+                  <div className="bg-gray-50 border rounded-lg p-4 whitespace-pre-wrap" onMouseUp={handleTextSelection} onTouchEnd={handleTextSelection}>
                     {selectedQuestion.model_answer_ja}
                   </div>
                 )}
@@ -3031,7 +3034,7 @@ function App() {
                   };
                   
                   return (
-                    <div key={fav.id} className="border rounded-lg p-3 md:p-4 bg-gray-50" onMouseUp={handleTextSelection}>
+                    <div key={fav.id} className="border rounded-lg p-3 md:p-4 bg-gray-50" onMouseUp={handleTextSelection} onTouchEnd={handleTextSelection}>
                       <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3 mb-4">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-2 flex-wrap">
@@ -3132,7 +3135,7 @@ function App() {
                                           ? 'bg-blue-50 border border-blue-200' 
                                           : 'bg-purple-50 border border-purple-200'
                                       }`}
-                                      onMouseUp={handleTextSelection}
+                                      onMouseUp={handleTextSelection} onTouchEnd={handleTextSelection}
                                     >
                                       {/* 追問質問 */}
                                       {turn.followUpQuestion && (
@@ -3283,7 +3286,7 @@ function App() {
             ) : (
               <div className="space-y-4">
                 {resumes.map((resume) => (
-                  <div key={resume.id} className="border rounded-lg p-4" onMouseUp={handleTextSelection}>
+                  <div key={resume.id} className="border rounded-lg p-4" onMouseUp={handleTextSelection} onTouchEnd={handleTextSelection}>
                     <div className="flex items-start justify-between mb-4">
                       <div>
                         <h3 className="font-semibold text-lg">{resume.filename}</h3>
@@ -3411,7 +3414,7 @@ function App() {
                       const hasDetails = note.explanation || (note.example_sentences && note.example_sentences.length > 0) || (note.tags && note.tags.length > 0);
                       
                       return (
-                      <div key={note.id} className="border rounded-lg p-3 md:p-4 bg-gray-50" onMouseUp={handleTextSelection}>
+                      <div key={note.id} className="border rounded-lg p-3 md:p-4 bg-gray-50" onMouseUp={handleTextSelection} onTouchEnd={handleTextSelection}>
                         <div 
                           className={`flex items-start justify-between mb-2 ${hasDetails ? 'cursor-pointer' : ''}`}
                           onClick={() => {
@@ -3647,7 +3650,7 @@ function App() {
               💡 点击灰色背景关闭 | Click background to close
             </div>
             
-            <div className="p-6" onMouseUp={handleTextSelection}>
+            <div className="p-6" onMouseUp={handleTextSelection} onTouchEnd={handleTextSelection}>
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-2xl font-bold">単語分析</h3>
                 <button 
