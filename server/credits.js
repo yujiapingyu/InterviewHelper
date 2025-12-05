@@ -11,6 +11,7 @@ export const AI_COSTS = {
   IMPORT_DOCUMENT: 8,         // 导入文档（提取问题）
   ANALYZE_QUESTION: 5,        // 解析问题（生成完整数据）
   PARSE_RESUME: 10,           // 解析履历书
+  PREP_ANALYSIS: 4,           // PREP法练习分析
 };
 
 // 额度操作说明（用于前端显示）
@@ -24,6 +25,7 @@ export const AI_COST_DESCRIPTIONS = {
   IMPORT_DOCUMENT: '导入文档',
   ANALYZE_QUESTION: '解析问题',
   PARSE_RESUME: '解析履历书',
+  PREP_ANALYSIS: 'PREP法练习分析',
 };
 
 /**

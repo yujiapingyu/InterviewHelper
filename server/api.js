@@ -62,7 +62,7 @@ async function authenticate(req, res, next) {
 
   try {
     const [rows] = await pool.query(
-      `SELECT s.user_id, u.ai_credits, u.notion_api_key, u.notion_database_id, u.role 
+      `SELECT s.user_id, u.ai_credits, u.notion_api_key, u.notion_database_id, u.role, u.target_language 
        FROM sessions s
        JOIN users u ON s.user_id = u.id
        WHERE s.token = ? AND s.expires_at > NOW()`,
@@ -77,6 +77,9 @@ async function authenticate(req, res, next) {
     req.userId = session.user_id;
     req.userCredits = session.ai_credits;
     req.userRole = session.role;
+    req.user = {
+      target_language: session.target_language
+    };
     req.userNotionConfig = {
       notion_api_key: session.notion_api_key,
       notion_database_id: session.notion_database_id
@@ -1971,6 +1974,111 @@ app.get('/api/notion/status', authenticate, (req, res) => {
       ? 'Notion integration is configured and active' 
       : `Notion integration is not configured. Missing: ${!hasApiKey ? 'NOTION_API_KEY ' : ''}${!hasDatabaseId ? 'NOTION_DATABASE_ID' : ''}`
   });
+});
+
+// PREP Practice endpoints
+app.post('/api/prep-practice/question', authenticate, async (req, res) => {
+  console.log('PREP question request received');
+  console.log('User:', req.user);
+  console.log('UserId:', req.userId);
+  
+  try {
+    const questions = [
+      { ja: 'チームで働く時と一人で働く時、どちらが好きですか？', zh: '你更喜欢团队合作还是独立工作？' },
+      { ja: '仕事で最も重要なものは何だと思いますか？', zh: '你认为工作中最重要的是什么？' },
+      { ja: '失敗から学んだ経験について教えてください。', zh: '请分享一个从失败中学习的经历。' },
+      { ja: '新しい技術を学ぶ時、どのようにアプローチしますか？', zh: '学习新技术时，你会如何着手？' },
+      { ja: 'ストレスが多い状況をどのように対処しますか？', zh: '你如何应对压力大的情况？' },
+      { ja: '5年後、自分はどうなっていたいと思いますか？', zh: '5年后，你希望自己成为什么样的人？' },
+      { ja: 'リモートワークとオフィスワーク、どちらが好きですか？', zh: '你更喜欢远程工作还是办公室工作？' },
+      { ja: '自分の強みは何だと思いますか？', zh: '你认为自己的优势是什么？' }
+    ];
+    
+    const randomQuestion = questions[Math.floor(Math.random() * questions.length)];
+    const user = req.user;
+    const lang = user?.target_language || 'zh';
+    
+    console.log('Sending question:', randomQuestion);
+    console.log('Language:', lang);
+    
+    res.json({ 
+      question: lang === 'ja' ? randomQuestion.ja : randomQuestion.zh
+    });
+  } catch (error) {
+    console.error('Error generating PREP question:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/prep-practice/analyze', authenticate, requireCredits('PREP_ANALYSIS'), async (req, res) => {
+  const { question, answer } = req.body;
+  const userId = req.userId;
+  
+  try {
+    const prompt = `あなたはPREP法の専門家です。以下の質問と回答を分析してください。
+
+質問: ${question}
+
+回答: ${answer}
+
+以下の観点で分析してください：
+1. PREP法の4つの要素（Point, Reason, Example, Point）が含まれているか
+2. 各要素の質と適切さ
+3. 改善点とアドバイス
+4. 総合評価（5段階）
+
+そして、この質問に対するPREP法を使った模範回答を提供してください。
+
+回答は以下の形式でMarkdownで出力してください：
+## 分析結果
+（分析内容）
+
+## 評価
+⭐️ X/5
+
+## 模範回答
+（PREP法を使った模範回答）`;
+
+    const GEMINI_API_KEY = process.env.VITE_GEMINI_API_KEY || '';
+    const GEMINI_MODEL = process.env.VITE_GEMINI_MODEL || 'gemini-2.5-flash-lite';
+    
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.7,
+            maxOutputTokens: 2048,
+          }
+        })
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error('Gemini API error');
+    }
+
+    const data = await response.json();
+    const analysis = data.candidates[0]?.content?.parts[0]?.text || '';
+    
+    // Extract model answer from the analysis
+    const parts = analysis.split('## 模範回答');
+    const modelAnswer = parts.length > 1 ? '## 模範回答' + parts[1] : '';
+    
+    // Charge credits after successful generation
+    await chargeCredits(userId, 'PREP_ANALYSIS', 'PREP法練習分析');
+    
+    res.json({ 
+      analysis: analysis,
+      modelAnswer: modelAnswer
+    });
+  } catch (error) {
+    console.error('Error analyzing PREP answer:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Start server

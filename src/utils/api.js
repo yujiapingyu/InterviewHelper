@@ -452,3 +452,19 @@ export const creditsAPI = {
     });
   },
 };
+
+// PREP Practice API
+export const prepPracticeAPI = {
+  async getQuestion() {
+    return fetchWithAuth('/prep-practice/question', {
+      method: 'POST',
+    });
+  },
+  
+  async analyzeAnswer(question, answer) {
+    return fetchWithAuth('/prep-practice/analyze', {
+      method: 'POST',
+      body: JSON.stringify({ question, answer }),
+    });
+  },
+};

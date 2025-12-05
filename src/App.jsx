@@ -15,7 +15,7 @@ import {
   FileUp, Sparkles, Coins, Settings, CreditCard, History, Download
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
-import { auth, questionsAPI, practiceAPI, favoritesAPI, resumeAPI, conversationAPI, vocabularyAPI, creditsAPI } from './utils/api';
+import { auth, questionsAPI, practiceAPI, favoritesAPI, resumeAPI, conversationAPI, vocabularyAPI, creditsAPI, prepPracticeAPI } from './utils/api';
 import { getAIFeedback, startSpeechRecognition } from './utils/gemini';
 import AdminPanel from './AdminPanel';
 
@@ -127,6 +127,14 @@ function App() {
 
   // Toast notification state
   const [toast, setToast] = useState(null);
+  
+  // PREP Practice state
+  const [showPrepPractice, setShowPrepPractice] = useState(false);
+  const [prepStep, setPrepStep] = useState('example'); // 'example', 'practice', 'analysis'
+  const [prepQuestion, setPrepQuestion] = useState('');
+  const [prepAnswer, setPrepAnswer] = useState('');
+  const [prepAnalysis, setPrepAnalysis] = useState(null);
+  const [prepLoading, setPrepLoading] = useState(false);
   
   // Onboarding guide state
   const [showOnboardingGuide, setShowOnboardingGuide] = useState(false);
@@ -249,6 +257,17 @@ function App() {
       prepReason: { ja: 'Reason: その理由を説明する', zh: 'Reason: 说明理由' },
       prepExample: { ja: 'Example: 具体例を示す', zh: 'Example: 举例说明' },
       prepPointAgain: { ja: 'Point: 再度結論を述べる', zh: 'Point: 再次总结' },
+      prepPractice: { ja: 'PREP法を練習', zh: 'PREP法练习' },
+      prepExampleTitle: { ja: 'PREP法の例', zh: 'PREP法范例' },
+      prepPracticeTitle: { ja: 'PREP法練習', zh: 'PREP法练习' },
+      prepYourAnswer: { ja: 'あなたの回答', zh: '你的回答' },
+      prepAnswerPlaceholder: { ja: '回答を入力してください（任意の言語で入力できます）', zh: '请输入你的回答（可以使用任何语言）' },
+      prepSubmitAnswer: { ja: '回答完了', zh: '回答完毕' },
+      prepNextQuestion: { ja: '次の質問', zh: '下一题' },
+      prepAnalysisTitle: { ja: 'AI分析結果', zh: 'AI分析结果' },
+      prepClose: { ja: '閉じる', zh: '关闭' },
+      prepStartPractice: { ja: '練習を始める', zh: '开始练习' },
+      prepAnalyzing: { ja: 'AI分析中...', zh: 'AI分析中...' },
       availableQuestions: { ja: '利用可能な質問', zh: '可用问题数' },
       favoritesCount: { ja: 'お気に入り', zh: '收藏数' },
       uploadedResumes: { ja: 'アップロード済み履歴書', zh: '已上传简历' },
@@ -637,6 +656,52 @@ function App() {
       }
       return newSet;
     });
+  };
+
+  // PREP Practice handlers
+  const startPrepPractice = async () => {
+    setShowPrepPractice(true);
+    setPrepStep('example');
+    setPrepAnswer('');
+    setPrepAnalysis(null);
+    setPrepQuestion('');
+  };
+
+  const handlePrepStartPractice = async () => {
+    setPrepLoading(true);
+    try {
+      const data = await prepPracticeAPI.getQuestion();
+      setPrepQuestion(data.question);
+      setPrepStep('practice');
+    } catch (err) {
+      setError(err.message);
+      showToast(err.message, 'error');
+    } finally {
+      setPrepLoading(false);
+    }
+  };
+
+  const handlePrepSubmitAnswer = async () => {
+    if (!prepAnswer.trim()) return;
+    
+    setPrepLoading(true);
+    try {
+      const data = await prepPracticeAPI.analyzeAnswer(prepQuestion, prepAnswer);
+      setPrepAnalysis(data);
+      setPrepStep('analysis');
+      await loadUserData();
+    } catch (err) {
+      setError(err.message);
+      showToast(err.message, 'error');
+    } finally {
+      setPrepLoading(false);
+    }
+  };
+
+  const handlePrepNextQuestion = () => {
+    setPrepAnswer('');
+    setPrepAnalysis(null);
+    handlePrepStartPractice();
   };
 
   // Settings handlers
@@ -2163,7 +2228,16 @@ function App() {
               </div>
 
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <h4 className="font-semibold mb-2">{getText('prepMethod')}</h4>
+                <div className="flex items-start justify-between mb-2">
+                  <h4 className="font-semibold">{getText('prepMethod')}</h4>
+                  <button
+                    onClick={startPrepPractice}
+                    className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    {getText('prepPractice')}
+                  </button>
+                </div>
                 <ul className="text-sm text-gray-700 space-y-1">
                   <li><strong>Point:</strong> {getText('prepPoint').replace('Point: ', '')}</li>
                   <li><strong>Reason:</strong> {getText('prepReason').replace('Reason: ', '')}</li>
@@ -4543,6 +4617,155 @@ function App() {
           {toast.type === 'success' && <Check className="w-5 h-5" />}
           {toast.type === 'error' && <X className="w-5 h-5" />}
           <span className="font-medium">{toast.message}</span>
+        </div>
+      )}
+      
+      {/* PREP Practice Modal */}
+      {showPrepPractice && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-bold">{getText('prepPracticeTitle')}</h2>
+                <button
+                  onClick={() => setShowPrepPractice(false)}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              {/* Example Step */}
+              {prepStep === 'example' && (
+                <div className="space-y-6">
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
+                    <h3 className="text-lg font-semibold mb-4">{getText('prepExampleTitle')}</h3>
+                    <div className="mb-4">
+                      <p className="font-semibold text-lg mb-2">
+                        {currentUser?.target_language === 'ja' 
+                          ? 'あなたは家で映画を見るのと映画館で見るのとどちらが好きですか？' 
+                          : '你喜欢在家看电影还是在电影院看电影？'}
+                      </p>
+                    </div>
+                    
+                    <div className="bg-white rounded-lg p-4 space-y-3">
+                      <div className="border-l-4 border-blue-500 pl-4">
+                        <p className="font-semibold text-blue-700">Point（结论）</p>
+                        <p className="text-gray-700">
+                          {currentUser?.target_language === 'ja'
+                            ? '私は家で映画を見る方が好きです。'
+                            : '我更喜欢在家看电影。'}
+                        </p>
+                      </div>
+                      
+                      <div className="border-l-4 border-green-500 pl-4">
+                        <p className="font-semibold text-green-700">Reason（理由）</p>
+                        <p className="text-gray-700">
+                          {currentUser?.target_language === 'ja'
+                            ? 'なぜなら、自分のペースでリラックスして楽しめるからです。'
+                            : '因为可以按照自己的节奏放松地享受。'}
+                        </p>
+                      </div>
+                      
+                      <div className="border-l-4 border-purple-500 pl-4">
+                        <p className="font-semibold text-purple-700">Example（例子）</p>
+                        <p className="text-gray-700">
+                          {currentUser?.target_language === 'ja'
+                            ? '例えば、好きな食べ物を用意したり、途中で一時停止して休憩したりできます。また、映画館のように他の人に気を使う必要もありません。'
+                            : '例如，可以准备喜欢的食物，中途暂停休息。而且不用像电影院那样顾虑其他人。'}
+                        </p>
+                      </div>
+                      
+                      <div className="border-l-4 border-blue-500 pl-4">
+                        <p className="font-semibold text-blue-700">Point（总结）</p>
+                        <p className="text-gray-700">
+                          {currentUser?.target_language === 'ja'
+                            ? 'ですから、私は家で映画を見る方が好きです。'
+                            : '所以，我更喜欢在家看电影。'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <button
+                    onClick={handlePrepStartPractice}
+                    disabled={prepLoading}
+                    className="w-full px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-semibold"
+                  >
+                    {prepLoading ? getText('loading') : getText('prepStartPractice')}
+                  </button>
+                </div>
+              )}
+
+              {/* Practice Step */}
+              {prepStep === 'practice' && (
+                <div className="space-y-6">
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-6">
+                    <h3 className="text-lg font-semibold mb-3">
+                      {currentUser?.target_language === 'ja' ? '質問' : '问题'}
+                    </h3>
+                    <p className="text-xl text-gray-800">{prepQuestion}</p>
+                  </div>
+                  
+                  <div>
+                    <label className="block font-semibold mb-2">{getText('prepYourAnswer')}</label>
+                    <p className="text-sm text-gray-500 mb-3">
+                      {currentUser?.target_language === 'ja' 
+                        ? '💡 任意の言語で入力できます（日本語、中国語、英語など）'
+                        : '💡 可以使用任何语言输入（日语、中文、英语等）'}
+                    </p>
+                    <textarea
+                      value={prepAnswer}
+                      onChange={(e) => setPrepAnswer(e.target.value)}
+                      placeholder={getText('prepAnswerPlaceholder')}
+                      className="w-full border rounded-lg p-4 min-h-[200px]"
+                    />
+                  </div>
+                  
+                  <button
+                    onClick={handlePrepSubmitAnswer}
+                    disabled={!prepAnswer.trim() || prepLoading}
+                    className="w-full px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 font-semibold"
+                  >
+                    {prepLoading ? getText('prepAnalyzing') : getText('prepSubmitAnswer')}
+                  </button>
+                </div>
+              )}
+
+              {/* Analysis Step */}
+              {prepStep === 'analysis' && prepAnalysis && (
+                <div className="space-y-6">
+                  <div className="bg-purple-50 border border-purple-200 rounded-lg p-6">
+                    <h3 className="text-lg font-semibold mb-4">{getText('prepAnalysisTitle')}</h3>
+                    <div 
+                      className="prose prose-sm max-w-none"
+                      dangerouslySetInnerHTML={{ __html: marked.parse(prepAnalysis.analysis || '') }}
+                    />
+                  </div>
+                  
+                  {prepAnalysis.modelAnswer && (
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-6">
+                      <h3 className="text-lg font-semibold mb-4">
+                        {currentUser?.target_language === 'ja' ? '標準答案' : '标准答案'}
+                      </h3>
+                      <div 
+                        className="prose prose-sm max-w-none"
+                        dangerouslySetInnerHTML={{ __html: marked.parse(prepAnalysis.modelAnswer || '') }}
+                      />
+                    </div>
+                  )}
+                  
+                  <button
+                    onClick={handlePrepNextQuestion}
+                    disabled={prepLoading}
+                    className="w-full px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-semibold"
+                  >
+                    {prepLoading ? getText('loading') : getText('prepNextQuestion')}
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
       
