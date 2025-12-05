@@ -167,7 +167,7 @@ function App() {
       admin: { ja: '管理', zh: '管理' },
       
       // Onboarding
-      uploadResume: {
+      onboardingUploadTitle: {
         ja: '履歴書をアップロードして、パーソナライズされた面接練習を始めましょう！',
         zh: '上传简历，开始个性化面试练习！',
       },
@@ -333,6 +333,32 @@ function App() {
       currentBalance: { ja: '現在の残高', zh: '当前余额' },
       recharge: { ja: 'チャージ', zh: '充值' },
       pointRecharge: { ja: 'ポイントチャージ', zh: '积分充值' },
+      
+      // Favorites
+      favoriteQuestions: { ja: 'お気に入りの質問', zh: '收藏的问题' },
+      
+      // Resume upload
+      resumeManagement: { ja: '履歴書管理', zh: '简历管理' },
+      uploadResume: { ja: '履歴書をアップロード', zh: '上传简历' },
+      privacyProtection: { ja: 'プライバシー保護:', zh: '隐私保护:' },
+      privacyDesc: { 
+        ja: 'ファイルは AI によって解析され、重要な情報のみが保存されます。元のファイルは保存されません。',
+        zh: '文件将由AI解析，仅保存关键信息。不保存原始文件。' 
+      },
+      uploadDocTypes: {
+        ja: '📄 アップロード可能な書類：履歴書、職務経歴書、学習記録、プロジェクト資料など、あなたの経験やスキルが記載された文書。対応形式: PDF, Word (.doc, .docx), テキスト (.txt)',
+        zh: '📄 可上传文档：简历、职务经历书、学习记录、项目资料等，任何包含您经验和技能的文档。支持格式：PDF、Word (.doc, .docx)、文本 (.txt)'
+      },
+      noResumesUploaded: { ja: '履歴書がアップロードされていません。', zh: '暂未上传简历。' },
+      noUsageHistory: { ja: 'まだ使用履歴がありません', zh: '暂无使用记录' },
+      
+      // Search & Review
+      searchPlaceholder: { ja: 'キーワードで検索... (質問、回答、要点)', zh: '关键词搜索...（问题、答案、要点）' },
+      reviewMode: { ja: '復習モード', zh: '复习模式' },
+      
+      // Error messages  
+      insufficientCredits: { ja: 'API エラー: Insufficient AI credits', zh: 'API错误：积分不足' },
+      generateQuestionError: { ja: '質問の生成に失敗しました', zh: '问题生成失败' },
     };
     
     // Default to Chinese, fallback to Japanese
@@ -1257,6 +1283,12 @@ function App() {
       const updatedResumes = await resumeAPI.getAll();
       setResumes(updatedResumes);
       
+      // Refresh user credits after upload
+      const user = await auth.getCurrentUser();
+      if (user) {
+        setAiCredits(user.ai_credits || 0);
+      }
+      
       setError('');
       showToast('✅ 履歴書を正常にアップロードしました！', 'success');
       
@@ -1884,7 +1916,7 @@ function App() {
                     </div>
                   </div>
                   <div className="flex-1">
-                    <h3 className="text-xl font-bold mb-2">🎯 {getText('uploadResume')}</h3>
+                    <h3 className="text-xl font-bold mb-2">🎯 {getText('onboardingUploadTitle')}</h3>
                     <p className="text-gray-700 mb-4">
                       {getText('uploadResumeDesc')}
                     </p>
@@ -2010,7 +2042,7 @@ function App() {
                       value={searchKeyword}
                       onChange={(e) => setSearchKeyword(e.target.value)}
                       onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
-                      placeholder="キーワードで検索... (質問、回答、要点)"
+                      placeholder={getText('searchPlaceholder')}
                       className="w-full px-4 py-2 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
                     <Search className="w-5 h-5 text-gray-400 absolute left-3 top-2.5" />
@@ -2688,7 +2720,7 @@ function App() {
         {/* Favorites View */}
         {currentView === 'favorites' && (
           <div className="bg-white rounded-lg shadow-sm p-6">
-            <h2 className="text-2xl font-bold mb-6">お気に入りの質問</h2>
+            <h2 className="text-2xl font-bold mb-6">{getText('favoriteQuestions')}</h2>
 
             {favorites.length === 0 ? (
               <div className="text-center py-12 text-gray-500">
@@ -2944,10 +2976,10 @@ function App() {
         {currentView === 'resumes' && (
           <div className="bg-white rounded-lg shadow-sm p-6">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-2xl font-bold">履歴書管理</h2>
+              <h2 className="text-2xl font-bold">{getText('resumeManagement')}</h2>
               <label className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer">
                 <Upload className="w-5 h-5" />
-                履歴書をアップロード
+                {getText('uploadResume')}
                 <input
                   type="file"
                   onChange={handleFileUpload}
@@ -2958,15 +2990,17 @@ function App() {
             </div>
 
             <div className="mb-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <p className="text-sm text-gray-700">
-                <strong>プライバシー保護:</strong> ファイルは AI によって解析され、重要な情報のみが保存されます。
-                元のファイルは保存されません。対応形式: PDF, Word (.doc, .docx), テキスト (.txt)
+              <p className="text-sm text-gray-700 mb-2">
+                <strong>{getText('privacyProtection')}</strong> {getText('privacyDesc')}
+              </p>
+              <p className="text-sm text-gray-600">
+                {getText('uploadDocTypes')}
               </p>
             </div>
 
             {resumes.length === 0 ? (
               <div className="text-center py-12 text-gray-500">
-                履歴書がアップロードされていません。
+                {getText('noResumesUploaded')}
               </div>
             ) : (
               <div className="space-y-4">
@@ -3037,7 +3071,7 @@ function App() {
                   className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
                 >
                   <RotateCcw className="w-5 h-5" />
-                  復習モード
+                  {getText('reviewMode')}
                 </button>
               )}
             </div>
@@ -3883,7 +3917,7 @@ function App() {
                 <div className="bg-gray-50 rounded-lg max-h-96 overflow-y-auto">
                   {creditsHistory.length === 0 ? (
                     <div className="text-center py-8 text-gray-500">
-                      まだ使用履歴がありません
+                      {getText('noUsageHistory')}
                     </div>
                   ) : (
                     <div className="divide-y">
