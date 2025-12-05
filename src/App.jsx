@@ -1,10 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { marked } from 'marked';
+
+// Configure marked.js for better rendering
+marked.setOptions({
+  breaks: true,
+  gfm: true,
+  headerIds: true,
+  mangle: false
+});
 import { 
   User, LogIn, LogOut, BookOpen, Mic, FileText, Star, 
-  PlusCircle, Edit, Trash2, Play, ChevronRight, Home,
+  PlusCircle, Edit, Trash2, Play, ChevronRight, ChevronUp, ChevronDown, Home,
   Upload, RefreshCw, Check, X, Loader2, MessageSquare, Shuffle, Send, Book, Search, RotateCcw, Eye, EyeOff,
-  FileUp, Sparkles, Coins, Settings, CreditCard, History
+  FileUp, Sparkles, Coins, Settings, CreditCard, History, Download
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { auth, questionsAPI, practiceAPI, favoritesAPI, resumeAPI, conversationAPI, vocabularyAPI, creditsAPI } from './utils/api';
@@ -139,6 +147,7 @@ function App() {
   const [questionsPerPage, setQuestionsPerPage] = useState(10);
   const [favoritesPerPage, setFavoritesPerPage] = useState(10);
   const [vocabularyPerPage, setVocabularyPerPage] = useState(10);
+  const [expandedVocabIds, setExpandedVocabIds] = useState(new Set());
 
   useEffect(() => {
     loadCurrentUser();
@@ -316,6 +325,8 @@ function App() {
       deleteButton: { ja: '削除', zh: '删除' },
       editWord: { ja: '単語を編集', zh: '编辑单词' },
       perPage: { ja: '件/ページ', zh: '条/页' },
+      pageOf: { ja: 'ページ', zh: '页' },
+      itemsCount: { ja: '件', zh: '条' },
       points: { ja: 'ポイント', zh: '积分' },
       importDoc: { ja: '文書導入', zh: '导入文档' },
       import: { ja: '導入', zh: '导入' },
@@ -415,6 +426,9 @@ function App() {
       notionSyncEnabled: { ja: 'Notion同期: 有効 - 保存した単語は自動的にNotionデータベースに同期されます', zh: 'Notion同步：已启用 - 保存的单词将自动同步到Notion数据库' },
       noVocabulary: { ja: 'まだ保存した単語がありません。質問ページで単語を選択して分析・保存してください。', zh: '还没有保存的单词。请在问题页面选择单词进行分析和保存。' },
       exampleLabel: { ja: '例文:', zh: '例句：' },
+      exportVocabulary: { ja: '単語帳をエクスポート', zh: '导出单词本' },
+      exportSuccess: { ja: '✅ 単語帳をエクスポートしました！', zh: '✅ 单词本导出成功！' },
+      vocabularyLimitReached: { ja: '単語帳の上限（1000個）に達しました。不要な単語を削除してから追加してください。', zh: '单词本已达上限（1000个）。请先删除不需要的单词再添加。' },
       
       // Error messages  
       insufficientCredits: { ja: 'API エラー: Insufficient AI credits', zh: 'API错误：积分不足' },
@@ -1110,8 +1124,16 @@ function App() {
       }
     } catch (err) {
       console.error('❌ Save vocabulary error:', err);
-      setError('保存失败: ' + err.message);
-      showToast('❌ 保存失败: ' + err.message, 'error');
+      
+      // Check if it's a limit error
+      if (err.response?.data?.limit_reached) {
+        const errorMsg = err.response.data[currentUser?.target_language === 'ja' ? 'error' : 'error_zh'] || getText('vocabularyLimitReached');
+        setError(errorMsg);
+        showToast('⚠️ ' + errorMsg, 'warning');
+      } else {
+        setError(getText('saveFailed') + ': ' + err.message);
+        showToast('❌ ' + getText('saveFailed') + ': ' + err.message, 'error');
+      }
     } finally {
       setLoading(false);
     }
@@ -1449,16 +1471,32 @@ function App() {
     
     if (unknownWords.length > 0) {
       try {
+        let savedCount = 0;
+        let limitReached = false;
+        
         for (const wordData of unknownWords) {
-          await vocabularyAPI.save(wordData);
+          try {
+            await vocabularyAPI.save(wordData);
+            savedCount++;
+          } catch (err) {
+            if (err.response?.data?.limit_reached) {
+              limitReached = true;
+              break;
+            }
+          }
         }
+        
         const updatedVocab = await vocabularyAPI.getAll(vocabularyPage, vocabularyPerPage);
         setVocabularyNotes(updatedVocab.notes || updatedVocab);
         setVocabularyTotal(updatedVocab.total || (updatedVocab.notes || updatedVocab).length);
-        showToast(`📚 ${unknownWords.length}個の専門用語を単語帳に追加しました！`, 'success');
         
-        // Show onboarding guide after completing vocab test
-        setTimeout(() => setShowOnboardingGuide(true), 1000);
+        if (limitReached) {
+          showToast(`⚠️ ${getText('vocabularyLimitReached')} (已保存${savedCount}个)`, 'warning');
+        } else if (savedCount > 0) {
+          showToast(`📚 ${savedCount}個の専門用語を単語帳に追加しました！`, 'success');
+          // Show onboarding guide after completing vocab test
+          setTimeout(() => setShowOnboardingGuide(true), 1000);
+        }
       } catch (err) {
         console.error('Failed to save vocabulary:', err);
       }
@@ -1491,6 +1529,48 @@ function App() {
       setEditingVocabulary(null);
     } catch (err) {
       setError('単語の更新に失敗しました: ' + err.message);
+    }
+  };
+
+  // Export vocabulary to CSV
+  const handleExportVocabulary = async () => {
+    try {
+      // Fetch all vocabulary (not just current page)
+      const allVocabData = await vocabularyAPI.getAll(1, vocabularyTotal || 10000);
+      const allVocab = allVocabData.notes || allVocabData;
+      
+      // Create CSV content
+      const headers = ['Word', 'Translation', 'Explanation', 'Example', 'Tags', 'Created At'];
+      const rows = allVocab.map(vocab => [
+        vocab.word || '',
+        vocab.translation || '',
+        (vocab.explanation || '').replace(/\n/g, ' ').replace(/"/g, '""'),
+        (vocab.example_sentence || '').replace(/\n/g, ' ').replace(/"/g, '""'),
+        (vocab.tags || []).join('; '),
+        new Date(vocab.created_at).toLocaleDateString()
+      ]);
+      
+      const csvContent = [
+        headers.join(','),
+        ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+      ].join('\n');
+      
+      // Add BOM for proper UTF-8 encoding in Excel
+      const BOM = '\uFEFF';
+      const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `vocabulary_${new Date().toISOString().split('T')[0]}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      showToast(getText('exportSuccess'), 'success');
+    } catch (err) {
+      console.error('Export failed:', err);
+      setError('导出失败: ' + err.message);
     }
   };
 
@@ -1533,91 +1613,95 @@ function App() {
     }
     
     return (
-      <div className="flex items-center justify-center gap-2 mt-6">
-        <button
-          onClick={() => onPageChange(1)}
-          disabled={currentPage === 1}
-          className="px-3 py-1 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          «
-        </button>
-        <button
-          onClick={() => onPageChange(currentPage - 1)}
-          disabled={currentPage === 1}
-          className="px-3 py-1 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          ‹
-        </button>
-        
-        {startPage > 1 && (
-          <>
-            <button
-              onClick={() => onPageChange(1)}
-              className="px-3 py-1 rounded-lg border border-gray-300 hover:bg-gray-50"
-            >
-              1
-            </button>
-            {startPage > 2 && <span className="px-2">...</span>}
-          </>
-        )}
-        
-        {pages.map(page => (
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-6 py-4 border-t sticky bottom-0 bg-white z-10">
+        <div className="flex items-center gap-2">
           <button
-            key={page}
-            onClick={() => onPageChange(page)}
-            className={`px-3 py-1 rounded-lg border ${
-              page === currentPage
-                ? 'bg-blue-600 text-white border-blue-600'
-                : 'border-gray-300 hover:bg-gray-50'
-            }`}
+            onClick={() => onPageChange(1)}
+            disabled={currentPage === 1}
+            className="px-3 py-1 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {page}
+            «
           </button>
-        ))}
-        
-        {endPage < totalPages && (
-          <>
-            {endPage < totalPages - 1 && <span className="px-2">...</span>}
-            <button
-              onClick={() => onPageChange(totalPages)}
-              className="px-3 py-1 rounded-lg border border-gray-300 hover:bg-gray-50"
-            >
-              {totalPages}
-            </button>
-          </>
-        )}
-        
-        <button
-          onClick={() => onPageChange(currentPage + 1)}
-          disabled={currentPage === totalPages}
-          className="px-3 py-1 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          ›
-        </button>
-        <button
-          onClick={() => onPageChange(totalPages)}
-          disabled={currentPage === totalPages}
-          className="px-3 py-1 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          »
-        </button>
-        
-        <span className="ml-4 text-sm text-gray-600">
-          {currentPage} / {totalPages} ページ ({totalItems}件)
-        </span>
-        
-        {onItemsPerPageChange && (
-          <select
-            value={itemsPerPage}
-            onChange={(e) => onItemsPerPageChange(parseInt(e.target.value))}
-            className="ml-4 px-2 py-1 border border-gray-300 rounded text-sm"
+          <button
+            onClick={() => onPageChange(currentPage - 1)}
+            disabled={currentPage === 1}
+            className="px-3 py-1 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <option value={10}>10{getText('perPage')}</option>
-            <option value={20}>20{getText('perPage')}</option>
-            <option value={50}>50{getText('perPage')}</option>
-            <option value={100}>100{getText('perPage')}</option>
-          </select>
-        )}
+            ‹
+          </button>
+          
+          {startPage > 1 && (
+            <>
+              <button
+                onClick={() => onPageChange(1)}
+                className="px-3 py-1 rounded-lg border border-gray-300 hover:bg-gray-50"
+              >
+                1
+              </button>
+              {startPage > 2 && <span className="px-2">...</span>}
+            </>
+          )}
+          
+          {pages.map(page => (
+            <button
+              key={page}
+              onClick={() => onPageChange(page)}
+              className={`px-3 py-1 rounded-lg border ${
+                page === currentPage
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              {page}
+            </button>
+          ))}
+          
+          {endPage < totalPages && (
+            <>
+              {endPage < totalPages - 1 && <span className="px-2">...</span>}
+              <button
+                onClick={() => onPageChange(totalPages)}
+                className="px-3 py-1 rounded-lg border border-gray-300 hover:bg-gray-50"
+              >
+                {totalPages}
+              </button>
+            </>
+          )}
+          
+          <button
+            onClick={() => onPageChange(currentPage + 1)}
+            disabled={currentPage === totalPages}
+            className="px-3 py-1 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            ›
+          </button>
+          <button
+            onClick={() => onPageChange(totalPages)}
+            disabled={currentPage === totalPages}
+            className="px-3 py-1 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            »
+          </button>
+        </div>
+        
+        <div className="flex items-center gap-4">
+          <span className="text-sm text-gray-600 whitespace-nowrap">
+            {currentPage} / {totalPages} {getText('pageOf')} ({totalItems}{getText('itemsCount')})
+          </span>
+          
+          {onItemsPerPageChange && (
+            <select
+              value={itemsPerPage}
+              onChange={(e) => onItemsPerPageChange(parseInt(e.target.value))}
+              className="px-2 py-1 border border-gray-300 rounded text-sm"
+            >
+              <option value={10}>10{getText('perPage')}</option>
+              <option value={20}>20{getText('perPage')}</option>
+              <option value={50}>50{getText('perPage')}</option>
+              <option value={100}>100{getText('perPage')}</option>
+            </select>
+          )}
+        </div>
       </div>
     );
   };
@@ -1906,8 +1990,8 @@ function App() {
             }`}
           >
             <Book className="w-5 h-5" />
-            <span className="hidden sm:inline">{getText('vocabulary')} ({vocabularyNotes.length})</span>
-            <span className="sm:hidden">{getText('vocabulary')} {vocabularyNotes.length}</span>
+            <span className="hidden sm:inline">{getText('vocabulary')} ({vocabularyTotal})</span>
+            <span className="sm:hidden">{getText('vocabulary')} {vocabularyTotal}</span>
           </button>
           <button
             onClick={() => setCurrentView('resumes')}
@@ -2174,7 +2258,7 @@ function App() {
                   }}
                   className={`px-4 py-2 rounded-lg ${categoryFilter === 'all' ? 'bg-gray-800 text-white' : 'bg-gray-100'}`}
                 >
-                  すべて ({questionsTotal})
+                  {getText('allQuestions')} ({questionsTotal})
                 </button>
                 <button
                   onClick={async () => {
@@ -3148,16 +3232,44 @@ function App() {
         {currentView === 'vocabulary' && (
           <div className="bg-white rounded-lg shadow-sm p-6">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-2xl font-bold">{getText('vocabularyPageTitle')}</h2>
-              {vocabularyNotes.length > 0 && !reviewMode && (
-                <button
-                  onClick={startReviewMode}
-                  className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
-                >
-                  <RotateCcw className="w-5 h-5" />
-                  {getText('reviewMode')}
-                </button>
-              )}
+              <div>
+                <h2 className="text-2xl font-bold">{getText('vocabularyPageTitle')}</h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  {vocabularyTotal} / 1000 {getText('itemsCount')}
+                  {vocabularyTotal >= 1000 && (
+                    <span className="ml-2 text-orange-600 font-medium">
+                      ⚠️ {currentUser?.target_language === 'ja' ? '上限到達' : '已达上限'}
+                    </span>
+                  )}
+                  {vocabularyTotal >= 900 && vocabularyTotal < 1000 && (
+                    <span className="ml-2 text-yellow-600">
+                      ({currentUser?.target_language === 'ja' ? 'もうすぐ上限' : '即将达到上限'})
+                    </span>
+                  )}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                {vocabularyNotes.length > 0 && (
+                  <>
+                    <button
+                      onClick={handleExportVocabulary}
+                      className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                    >
+                      <Download className="w-5 h-5" />
+                      {getText('exportVocabulary')}
+                    </button>
+                    {!reviewMode && (
+                      <button
+                        onClick={startReviewMode}
+                        className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                      >
+                        <RotateCcw className="w-5 h-5" />
+                        {getText('reviewMode')}
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
             </div>
             
             {/* Notion Status Banner */}
@@ -3184,23 +3296,46 @@ function App() {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {vocabularyNotes.map((note) => (
+                    {vocabularyNotes.map((note) => {
+                      const isExpanded = expandedVocabIds.has(note.id);
+                      const hasDetails = note.explanation || (note.example_sentences && note.example_sentences.length > 0) || (note.tags && note.tags.length > 0);
+                      
+                      return (
                       <div key={note.id} className="border rounded-lg p-3 md:p-4 bg-gray-50" onMouseUp={handleTextSelection}>
-                        <div className="flex items-start justify-between mb-3">
+                        <div 
+                          className={`flex items-start justify-between mb-2 ${hasDetails ? 'cursor-pointer' : ''}`}
+                          onClick={() => {
+                            if (hasDetails) {
+                              const newExpanded = new Set(expandedVocabIds);
+                              if (isExpanded) {
+                                newExpanded.delete(note.id);
+                              } else {
+                                newExpanded.add(note.id);
+                              }
+                              setExpandedVocabIds(newExpanded);
+                            }
+                          }}
+                        >
                           <div className="flex-1 min-w-0 pr-2">
                         <h3 className="text-lg md:text-xl font-bold text-blue-700 mb-1 break-words">{note.word}</h3>
                         <p className="text-sm md:text-base text-gray-600 break-words">{note.translation}</p>
                       </div>
                       <div className="flex gap-1">
                         <button
-                          onClick={() => handleEditVocabulary(note)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleEditVocabulary(note);
+                          }}
                           className="p-1.5 md:p-2 text-blue-600 hover:bg-blue-50 rounded-lg flex-shrink-0"
                           title={getText('editButton')}
                         >
                           <Edit className="w-4 h-4 md:w-5 md:h-5" />
                         </button>
                         <button
-                          onClick={() => handleDeleteVocabulary(note.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteVocabulary(note.id);
+                          }}
                           className="p-1.5 md:p-2 text-red-600 hover:bg-red-50 rounded-lg flex-shrink-0"
                         >
                           <Trash2 className="w-4 h-4 md:w-5 md:h-5" />
@@ -3208,45 +3343,50 @@ function App() {
                       </div>
                     </div>
 
-                    {note.explanation && (
-                      <div className="mb-3">
-                        <h4 className="font-semibold text-xs md:text-sm mb-1">解説:</h4>
-                        <div 
-                          className="text-xs md:text-sm text-gray-700 break-words prose prose-sm max-w-none"
-                          dangerouslySetInnerHTML={{ __html: marked.parse(note.explanation) }}
-                        />
-                      </div>
-                    )}
+                    {isExpanded && (
+                      <div className="mt-3 pt-3 border-t">
+                        {note.explanation && (
+                          <div className="mb-3">
+                            <h4 className="font-semibold text-xs md:text-sm mb-1">解説:</h4>
+                            <div 
+                              className="text-xs md:text-sm text-gray-700 break-words prose prose-sm max-w-none"
+                              dangerouslySetInnerHTML={{ __html: marked.parse(note.explanation) }}
+                            />
+                          </div>
+                        )}
 
-                    {note.example_sentences && note.example_sentences.length > 0 && (
-                      <div className="mb-3">
-                        <h4 className="font-semibold text-xs md:text-sm mb-2">例文:</h4>
-                        <div className="space-y-2">
-                          {note.example_sentences.map((example, idx) => (
-                            <div key={idx} className="bg-white p-2 md:p-3 rounded text-xs md:text-sm">
-                              <p className="text-gray-800 mb-1 break-words">{example.japanese}</p>
-                              <p className="text-gray-600 break-words">{example.chinese}</p>
+                        {note.example_sentences && note.example_sentences.length > 0 && (
+                          <div className="mb-3">
+                            <h4 className="font-semibold text-xs md:text-sm mb-2">例文:</h4>
+                            <div className="space-y-2">
+                              {note.example_sentences.map((example, idx) => (
+                                <div key={idx} className="bg-white p-2 md:p-3 rounded text-xs md:text-sm">
+                                  <p className="text-gray-800 mb-1 break-words">{example.japanese}</p>
+                                  <p className="text-gray-600 break-words">{example.chinese}</p>
+                                </div>
+                              ))}
                             </div>
-                          ))}
+                          </div>
+                        )}
+
+                        {note.tags && note.tags.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5 md:gap-2 mb-2">
+                            {note.tags.map((tag, idx) => (
+                              <span key={idx} className="px-2 py-1 bg-purple-100 text-purple-700 text-xs rounded">
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+
+                        <div className="text-xs text-gray-400">
+                          {new Date(note.created_at).toLocaleString('ja-JP')}
                         </div>
                       </div>
                     )}
-
-                    {note.tags && note.tags.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5 md:gap-2">
-                        {note.tags.map((tag, idx) => (
-                          <span key={idx} className="px-2 py-1 bg-purple-100 text-purple-700 text-xs rounded">
-                            {tag}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-
-                    <div className="mt-2 text-xs text-gray-400">
-                      {new Date(note.created_at).toLocaleString('ja-JP')}
-                    </div>
                   </div>
-                ))}
+                      );
+                    })}
               </div>
             )}
             
@@ -3275,7 +3415,7 @@ function App() {
             {/* Review Mode */}
             <div className="flex items-center justify-between">
               <div className="text-lg font-semibold text-gray-700">
-                カード {currentReviewIndex + 1} / {vocabularyNotes.length}
+                {getText('pageOf')} {currentReviewIndex + 1} / {vocabularyNotes.length}
               </div>
               <button
                 onClick={exitReviewMode}

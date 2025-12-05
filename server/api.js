@@ -1697,6 +1697,20 @@ app.post('/api/vocabulary', authenticate, async (req, res) => {
   const { word, translation, explanation, example_sentences, tags } = req.body;
   
   try {
+    // Check vocabulary count limit (1000 per user)
+    const [countResult] = await pool.query(
+      'SELECT COUNT(*) as count FROM vocabulary_notes WHERE user_id = ?',
+      [req.userId]
+    );
+    
+    if (countResult[0].count >= 1000) {
+      return res.status(400).json({ 
+        error: '単語帳の上限（1000個）に達しました。不要な単語を削除してから追加してください。',
+        error_zh: '单词本已达上限（1000个）。请先删除不需要的单词再添加。',
+        limit_reached: true
+      });
+    }
+    
     // Save to local database
     const [result] = await pool.query(
       `INSERT INTO vocabulary_notes (user_id, word, translation, explanation, example_sentences, tags)
@@ -1827,7 +1841,7 @@ app.put('/api/vocabulary/:id', authenticate, async (req, res) => {
   try {
     await pool.query(
       `UPDATE vocabulary_notes 
-       SET word = ?, translation = ?, explanation = ?, example_sentences = ?, tags = ?, updated_at = NOW()
+       SET word = ?, translation = ?, explanation = ?, example_sentences = ?, tags = ?
        WHERE id = ? AND user_id = ?`,
       [
         word,
